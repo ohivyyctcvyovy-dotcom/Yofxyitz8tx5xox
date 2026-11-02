@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Qual é o idioma da tela?"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <RadioGroup
+        android:id="@+id/rgLang"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp">
+
+        <RadioButton
+            android:id="@+id/rbJa"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:checked="true"
+            android:text="Japonês → Português" />
+
+        <RadioButton
+            android:id="@+id/rbKo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Coreano → Português" />
+
+        <RadioButton
+            android:id="@+id/rbEn"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Inglês → Português" />
+    </RadioGroup>
+
+    <Button
+        android:id="@+id/btnStart"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="Iniciar leitura" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:text="Depois de iniciar, volte para o app com o texto e arraste o dedo sobre a parte que quer ouvir. Use os botões da notificação para selecionar outra área ou encerrar."
+        android:textSize="14sp" />
+
+</LinearLayout>

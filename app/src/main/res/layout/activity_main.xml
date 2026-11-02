@@ -1,55 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="24dp">
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Qual é o idioma da tela?"
-        android:textSize="20sp"
-        android:textStyle="bold" />
-
-    <RadioGroup
-        android:id="@+id/rgLang"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp">
-
-        <RadioButton
-            android:id="@+id/rbJa"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:checked="true"
-            android:text="Japonês → Português" />
-
-        <RadioButton
-            android:id="@+id/rbKo"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Coreano → Português" />
-
-        <RadioButton
-            android:id="@+id/rbEn"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Inglês → Português" />
-    </RadioGroup>
-
-    <Button
-        android:id="@+id/btnStart"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:text="Iniciar leitura" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:text="Depois de iniciar, volte para o app com o texto e arraste o dedo sobre a parte que quer ouvir. Use os botões da notificação para selecionar outra área ou encerrar."
-        android:textSize="14sp" />
-
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#071321" android:fillViewport="true">
+<LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="24dp">
+<LinearLayout android:layout_width="wrap_content" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+<TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="♛" android:textColor="#FFCD5A" android:textSize="38sp" android:textStyle="bold"/>
+<TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="10dp" android:text="455" android:textColor="#24C7E8" android:textSize="34sp" android:textStyle="bold"/>
 </LinearLayout>
+<TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="LEITOR DE TELA" android:textColor="#FFFFFF" android:textSize="22sp" android:textStyle="bold"/>
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Escolha o idioma do texto que deseja ouvir em português." android:textColor="#AFC4D5" android:textSize="15sp"/>
+<TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="28dp" android:text="IDIOMA DA TELA" android:textColor="#24C7E8" android:textStyle="bold" android:textSize="13sp"/>
+<RadioGroup android:id="@+id/rgLang" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:background="#10263A" android:padding="16dp">
+<RadioButton android:id="@+id/rbJa" android:layout_width="match_parent" android:layout_height="wrap_content" android:checked="true" android:buttonTint="#24C7E8" android:text="Japonês → Português" android:textColor="#FFFFFF" android:padding="8dp"/>
+<RadioButton android:id="@+id/rbKo" android:layout_width="match_parent" android:layout_height="wrap_content" android:buttonTint="#24C7E8" android:text="Coreano → Português" android:textColor="#FFFFFF" android:padding="8dp"/>
+<RadioButton android:id="@+id/rbEn" android:layout_width="match_parent" android:layout_height="wrap_content" android:buttonTint="#24C7E8" android:text="Inglês → Português" android:textColor="#FFFFFF" android:padding="8dp"/>
+</RadioGroup>
+<Button android:id="@+id/btnStart" android:layout_width="match_parent" android:layout_height="56dp" android:layout_marginTop="24dp" android:backgroundTint="#13AFCF" android:text="ATIVAR LEITOR" android:textColor="#061522" android:textStyle="bold" android:textSize="16sp"/>
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="18dp" android:background="#10263A" android:padding="16dp" android:text="Depois de ativar, o botão flutuante 455 ficará sobre os outros aplicativos. Arraste-o para mudar de lugar. Toque em 455 para selecionar uma área da tela; toque no × para encerrar." android:textColor="#C6D7E4" android:textSize="14sp"/>
+</LinearLayout>
+</ScrollView>

@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   push:
     paths:
+      - 'TelaLeitor.zip'
       - '455-Android-Studio.zip'
       - '.github/workflows/build-apk.yml'
 
@@ -21,16 +22,29 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
       - name: Descompactar projeto
         run: |
-          test -f 455-Android-Studio.zip
           mkdir -p source
-          unzip -o 455-Android-Studio.zip -d source
+          if [ -f 455-Android-Studio.zip ]; then
+            unzip -o 455-Android-Studio.zip -d source
+          elif [ -f TelaLeitor.zip ]; then
+            unzip -o TelaLeitor.zip -d source
+          else
+            echo "Nenhum ZIP de projeto encontrado."
+            exit 1
+          fi
+          PROJECT_DIR=$(find source -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit | xargs -r dirname)
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "O ZIP não contém um projeto Gradle Android (settings.gradle)."
+            find source -maxdepth 4 -type f | head -80
+            exit 1
+          fi
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
       - name: Compilar APK
         run: |
-          cd source/TelaLeitor
+          cd "$PROJECT_DIR"
           gradle assembleDebug
       - name: Publicar APK
         uses: actions/upload-artifact@v4
         with:
           name: 455-apk
-          path: source/TelaLeitor/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

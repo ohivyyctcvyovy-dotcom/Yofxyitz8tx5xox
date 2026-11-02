@@ -12,6 +12,7 @@ import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.graphics.RectF
+import android.graphics.drawable.GradientDrawable
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.media.Image
@@ -25,6 +26,10 @@ import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.util.Log
 import android.view.WindowManager
+import android.view.Gravity
+import android.view.MotionEvent
+import android.graphics.Typeface
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.google.mlkit.common.model.DownloadConditions
@@ -58,6 +63,7 @@ class ScreenReaderService : Service() {
     private var reader: ImageReader? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var overlay: SelectionView? = null
+    private var floatingButton: TextView? = null
     private var sourceLang: String = TranslateLanguage.JAPANESE
     private var tts: TextToSpeech? = null
     private var ttsReady = false
@@ -104,7 +110,7 @@ class ScreenReaderService : Service() {
                     p.registerCallback(projectionCallback, handler)
                 }
                 setupCapture()
-                showSelection()
+                showFloatingButton()
             }
             ACTION_SELECT -> {
                 if (projection == null) toast("Inicie a leitura pelo app primeiro")
@@ -119,6 +125,7 @@ class ScreenReaderService : Service() {
 
     override fun onDestroy() {
         removeOverlay()
+        removeFloatingButton()
         releaseCapture()
         tts?.stop()
         tts?.shutdown()
@@ -199,6 +206,85 @@ class ScreenReaderService : Service() {
             }
             p.stop()
         }
+    }
+
+    // ---------- Botão flutuante 455 ----------
+
+    private fun showFloatingButton() {
+        if (floatingButton != null || !Settings.canDrawOverlays(this)) return
+        val button = TextView(this).apply {
+            text = "♛ 455   ×"
+            textSize = 15f
+            setTextColor(android.graphics.Color.WHITE)
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            setPadding(18, 12, 18, 12)
+            background = GradientDrawable().apply {
+                setColor(android.graphics.Color.rgb(0, 174, 210))
+                cornerRadius = 48f
+                setStroke(2, android.graphics.Color.rgb(255, 205, 90))
+            }
+            elevation = 12f
+        }
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 18
+            y = 260
+        }
+        var downX = 0f
+        var downY = 0f
+        var startX = 0
+        var startY = 0
+        button.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    startX = params.x
+                    startY = params.y
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    params.x = startX + (event.rawX - downX).toInt()
+                    params.y = startY + (event.rawY - downY).toInt()
+                    try { wm.updateViewLayout(view, params) } catch (_: Exception) {}
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val moved = kotlin.math.abs(event.rawX - downX) > 8 ||
+                        kotlin.math.abs(event.rawY - downY) > 8
+                    if (!moved) {
+                        if (event.x > view.width * 0.76f) stopSelf()
+                        else showSelection()
+                    }
+                    true
+                }
+                else -> true
+            }
+        }
+        try {
+            wm.addView(button, params)
+            floatingButton = button
+        } catch (e: Exception) {
+            Log.e(TAG, "Não foi possível mostrar o botão flutuante", e)
+        }
+    }
+
+    private fun removeFloatingButton() {
+        floatingButton?.let {
+            try { wm.removeView(it) } catch (_: Exception) {}
+        }
+        floatingButton = null
     }
 
     // ---------- Seleção da área ----------

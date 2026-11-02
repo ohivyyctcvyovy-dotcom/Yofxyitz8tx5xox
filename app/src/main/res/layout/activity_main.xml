@@ -14,6 +14,6 @@
 <RadioButton android:id="@+id/rbEn" android:layout_width="match_parent" android:layout_height="wrap_content" android:buttonTint="#24C7E8" android:text="Inglês → Português" android:textColor="#FFFFFF" android:padding="8dp"/>
 </RadioGroup>
 <Button android:id="@+id/btnStart" android:layout_width="match_parent" android:layout_height="56dp" android:layout_marginTop="24dp" android:backgroundTint="#13AFCF" android:text="ATIVAR LEITOR" android:textColor="#061522" android:textStyle="bold" android:textSize="16sp"/>
-<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="18dp" android:background="#10263A" android:padding="16dp" android:text="Depois de ativar, o botão flutuante 455 ficará sobre os outros aplicativos. Arraste-o para mudar de lugar. Toque em 455 para selecionar uma área da tela; toque no × para encerrar." android:textColor="#C6D7E4" android:textSize="14sp"/>
+<TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="18dp" android:background="#10263A" android:padding="16dp" android:text="Depois de ativar, use o botão flutuante: ① TELA lê o texto da tela inteira; ② ÁREA permite selecionar somente uma parte. Arraste o botão para mudar de lugar e toque em × para encerrar. A voz foi ajustada para falar em português brasileiro com ritmo mais natural." android:textColor="#C6D7E4" android:textSize="14sp"/>
 </LinearLayout>
 </ScrollView>

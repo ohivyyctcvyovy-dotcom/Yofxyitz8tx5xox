@@ -84,7 +84,7 @@ class ScreenReaderService : Service() {
         createChannel()
         tts = TextToSpeech(this) { status ->
             ttsReady = status == TextToSpeech.SUCCESS
-            if (ttsReady) tts?.language = Locale("pt", "BR")
+            if (ttsReady) configurePortugueseVoice()
         }
     }
 
@@ -214,18 +214,19 @@ class ScreenReaderService : Service() {
     private fun showFloatingButton() {
         if (floatingButton != null || !Settings.canDrawOverlays(this)) return
         val button = TextView(this).apply {
-            text = "♛ 455   ×"
-            textSize = 15f
+            text = "♛ 455   ① TELA   ② ÁREA   ×"
+            textSize = 13f
             setTextColor(android.graphics.Color.WHITE)
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setPadding(18, 12, 18, 12)
+            setPadding(14, 13, 14, 13)
             background = GradientDrawable().apply {
-                setColor(android.graphics.Color.rgb(0, 174, 210))
+                setColor(android.graphics.Color.rgb(0, 145, 180))
                 cornerRadius = 48f
                 setStroke(2, android.graphics.Color.rgb(255, 205, 90))
             }
             elevation = 12f
+            contentDescription = "Leitor 455. Toque na parte 1 para ler a tela inteira, na parte 2 para selecionar uma área, ou no X para encerrar. Arraste para mover."
         }
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -265,8 +266,12 @@ class ScreenReaderService : Service() {
                     val moved = kotlin.math.abs(event.rawX - downX) > 8 ||
                         kotlin.math.abs(event.rawY - downY) > 8
                     if (!moved) {
-                        if (event.x > view.width * 0.76f) stopSelf()
-                        else showSelection()
+                        val position = event.x / view.width.toFloat()
+                        when {
+                            position >= 0.84f -> stopSelf()
+                            position >= 0.53f -> showSelection()
+                            else -> readWholeScreen()
+                        }
                     }
                     true
                 }
@@ -321,6 +326,33 @@ class ScreenReaderService : Service() {
             try { wm.removeView(it) } catch (_: Exception) {}
         }
         overlay = null
+    }
+
+    // ---------- Modo 1: leitura da tela inteira ----------
+
+    private fun readWholeScreen() {
+        if (projection == null) {
+            say("A captura não está ativa. Inicie o leitor novamente.")
+            return
+        }
+        grabWholeFrame(0)
+    }
+
+    private fun grabWholeFrame(tries: Int) {
+        val r = reader
+        if (r == null) {
+            say("A captura não está ativa. Inicie o app de novo.")
+            return
+        }
+        val image = r.acquireLatestImage()
+        if (image == null) {
+            if (tries < 6) handler.postDelayed({ grabWholeFrame(tries + 1) }, 250)
+            else say("Não consegui capturar a tela. Tente novamente.")
+            return
+        }
+        val full = imageToBitmap(image)
+        image.close()
+        readText(full)
     }
 
     // ---------- Leitura do frame ----------
@@ -422,10 +454,54 @@ class ScreenReaderService : Service() {
 
     // ---------- Saída ----------
 
+    // Voz em português brasileiro com velocidade mais natural.
+    private fun configurePortugueseVoice() {
+        val engine = tts ?: return
+        engine.setLanguage(Locale("pt", "BR"))
+        engine.setSpeechRate(1.18f)
+        engine.setPitch(1.0f)
+
+        val brazilianVoice = engine.voices
+            ?.filter { it.locale.language == "pt" && it.locale.country.equals("BR", true) }
+            ?.sortedWith(
+                compareByDescending<android.speech.tts.Voice> { it.quality }
+                    .thenBy { it.isNetworkConnectionRequired }
+            )
+            ?.firstOrNull()
+        if (brazilianVoice != null) engine.voice = brazilianVoice
+    }
+
     private fun say(message: String) {
         handler.post {
-            if (ttsReady) tts?.speak(message, TextToSpeech.QUEUE_FLUSH, null, "leitura")
-            else toast(message)
+            val engine = tts
+            if (!ttsReady || engine == null) {
+                toast(message)
+                return@post
+            }
+
+            val remaining = message.trim()
+            if (remaining.isEmpty()) return@post
+            var start = 0
+            var first = true
+            while (start < remaining.length) {
+                var end = (start + 3200).coerceAtMost(remaining.length)
+                if (end < remaining.length) {
+                    val breakAt = remaining.lastIndexOf(' ', end)
+                    if (breakAt > start + 1200) end = breakAt
+                }
+                val part = remaining.substring(start, end).trim()
+                if (part.isNotEmpty()) {
+                    engine.speak(
+                        part,
+                        if (first) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
+                        null,
+                        "leitura_$start"
+                    )
+                    first = false
+                }
+                start = end
+                while (start < remaining.length && remaining[start].isWhitespace()) start++
+            }
         }
     }
 

@@ -34,8 +34,13 @@ import android.util.Log
 import android.view.WindowManager
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
 import android.graphics.Typeface
 import android.widget.TextView
+import android.widget.Button
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.google.mlkit.common.model.DownloadConditions
@@ -73,6 +78,7 @@ class ScreenReaderService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var overlay: SelectionView? = null
     private var floatingButton: TextView? = null
+    private var resultPanel: View? = null
     private var sourceLang: String = TranslateLanguage.JAPANESE
     private var tts: TextToSpeech? = null
     private var ttsReady = false
@@ -131,6 +137,7 @@ class ScreenReaderService : Service() {
     override fun onDestroy() {
         removeOverlay()
         removeFloatingButton()
+        removeResultPanel()
         releaseCapture()
         tts?.stop()
         tts?.shutdown()
@@ -366,38 +373,27 @@ class ScreenReaderService : Service() {
         return known[label] ?: label.replace('_', ' ').lowercase(Locale("pt", "BR"))
     }
 
-    // Amplia textos pequenos e aplica contraste moderado antes do OCR.
-    // Mantém as cores para não apagar caracteres coloridos de interfaces e jogos.
-    private fun prepareBitmapForOcr(source: Bitmap): Bitmap {
+    // Gera uma versão ampliada em tons de cinza para comparar com a original e a colorida.
+    private fun prepareBitmapForOcr(source: Bitmap, grayscale: Boolean = false): Bitmap {
         val maxDimension = 2600f
-        val scale = minOf(2.0f, maxDimension / maxOf(source.width, source.height).toFloat())
-            .coerceAtLeast(1.0f)
-        val outWidth = (source.width * scale).toInt().coerceAtLeast(1)
-        val outHeight = (source.height * scale).toInt().coerceAtLeast(1)
-        val enhanced = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
-        val contrast = 1.22f
+        val scale = minOf(2.0f, maxDimension / maxOf(source.width, source.height).toFloat()).coerceAtLeast(1.0f)
+        val w = (source.width * scale).toInt().coerceAtLeast(1)
+        val h = (source.height * scale).toInt().coerceAtLeast(1)
+        val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val contrast = if (grayscale) 1.32f else 1.22f
         val offset = 128f * (1f - contrast)
         val matrix = ColorMatrix(floatArrayOf(
-            contrast, 0f, 0f, 0f, offset,
-            0f, contrast, 0f, 0f, offset,
-            0f, 0f, contrast, 0f, offset,
-            0f, 0f, 0f, 1f, 0f
+            contrast, 0f, 0f, 0f, offset, 0f, contrast, 0f, 0f, offset,
+            0f, 0f, contrast, 0f, offset, 0f, 0f, 0f, 1f, 0f
         ))
+        if (grayscale) matrix.setSaturation(0f)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
             colorFilter = ColorMatrixColorFilter(matrix)
         }
-        Canvas(enhanced).drawBitmap(
-            source,
-            Rect(0, 0, source.width, source.height),
-            Rect(0, 0, outWidth, outHeight),
-            paint
-        )
-        return enhanced
+        Canvas(out).drawBitmap(source, Rect(0, 0, source.width, source.height), Rect(0, 0, w, h), paint)
+        return out
     }
 
-    // Faz duas tentativas: imagem original e versão ampliada/realçada.
-    // Escolhe o resultado com mais caracteres úteis, evitando substituir
-    // automaticamente um texto legível por uma tentativa claramente pior.
     private fun readText(bitmap: Bitmap) {
         val recognizer = when (sourceLang) {
             TranslateLanguage.JAPANESE -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
@@ -405,32 +401,35 @@ class ScreenReaderService : Service() {
             TranslateLanguage.KOREAN -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
             else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         }
-        val enhanced = prepareBitmapForOcr(bitmap)
-        val candidates = listOf(bitmap, enhanced)
+        val enhanced = prepareBitmapForOcr(bitmap, false)
+        val grayscale = prepareBitmapForOcr(bitmap, true)
+        val candidates = listOf(bitmap, enhanced, grayscale)
 
-        fun qualityScore(text: String): Int {
+        fun score(text: String): Int {
+            if (text.isBlank()) return Int.MIN_VALUE
             val useful = text.count { it.isLetterOrDigit() }
             val lines = text.count { it == '\n' }
             val replacements = text.count { it == '\uFFFD' }
             val controls = text.count { it.isISOControl() && it != '\n' && it != '\r' && it != '\t' }
-            return useful * 3 + lines * 2 - replacements * 20 - controls * 10
+            val repeated = Regex("(.)\\1{4,}").findAll(text).count()
+            return useful * 4 + lines * 3 - replacements * 25 - controls * 15 - repeated * 8
         }
-
+        fun finish(bestText: String) {
+            recognizer.close()
+            enhanced.recycle()
+            grayscale.recycle()
+            val finalText = bestText.trim()
+            Log.d(TAG, "OCR selecionado: $finalText")
+            if (finalText.isEmpty()) say("Não encontrei texto legível. Tente selecionar uma área maior ou mais nítida.")
+            else translate(finalText)
+        }
         fun runPass(index: Int, bestText: String, bestScore: Int) {
-            if (index >= candidates.size) {
-                recognizer.close()
-                enhanced.recycle()
-                val finalText = bestText.trim()
-                Log.d(TAG, "OCR selecionado: $finalText")
-                if (finalText.isEmpty()) say("Não encontrei texto legível. Tente selecionar uma área maior ou mais nítida.")
-                else translate(finalText)
-                return
-            }
+            if (index >= candidates.size) { finish(bestText); return }
             recognizer.process(InputImage.fromBitmap(candidates[index], 0))
                 .addOnSuccessListener { result ->
-                    val found = result.text.trim()
-                    val score = qualityScore(found)
-                    if (score > bestScore) runPass(index + 1, found, score)
+                    val found = result.textBlocks.joinToString("\n\n") { it.text.trim() }.trim()
+                    val value = score(found)
+                    if (value > bestScore) runPass(index + 1, found, value)
                     else runPass(index + 1, bestText, bestScore)
                 }
                 .addOnFailureListener { error ->
@@ -441,24 +440,147 @@ class ScreenReaderService : Service() {
         runPass(0, "", Int.MIN_VALUE)
     }
 
+    // Textos extensos são traduzidos em partes menores, mantendo os parágrafos.
+    private fun splitParagraph(text: String, limit: Int = 700): List<String> {
+        if (text.length <= limit) return listOf(text)
+        val sentences = text.split(Regex("(?<=[.!?。！？；;])\\s*")).filter { it.isNotBlank() }
+        val out = mutableListOf<String>()
+        var current = StringBuilder()
+        fun flush() {
+            if (current.isNotEmpty()) { out.add(current.toString().trim()); current = StringBuilder() }
+        }
+        for (sentence in sentences) {
+            if (sentence.length > limit) {
+                flush()
+                var i = 0
+                while (i < sentence.length) {
+                    var j = (i + limit).coerceAtMost(sentence.length)
+                    if (j < sentence.length && sentence[j - 1].isHighSurrogate()) j--
+                    if (j <= i) j = (i + limit).coerceAtMost(sentence.length)
+                    out.add(sentence.substring(i, j))
+                    i = j
+                }
+            } else {
+                if (current.isNotEmpty() && current.length + sentence.length > limit) flush()
+                if (current.isNotEmpty() && sourceLang == TranslateLanguage.ENGLISH) current.append(' ')
+                current.append(sentence)
+            }
+        }
+        flush()
+        return out.filter { it.isNotBlank() }
+    }
+
     private fun translate(text: String) {
         val translator = Translation.getClient(TranslatorOptions.Builder()
             .setSourceLanguage(sourceLang).setTargetLanguage(TranslateLanguage.PORTUGUESE).build())
         translator.downloadModelIfNeeded(DownloadConditions.Builder().build())
             .addOnSuccessListener {
-                translator.translate(text)
-                    .addOnSuccessListener { translated ->
-                        translator.close(); Log.d(TAG, "Tradução: $translated")
-                        toast("$text\n\n→ $translated"); say(translated)
+                val paragraphs = text.split(Regex("\\n\\s*\\n")).filter { it.isNotBlank() }
+                val translatedParagraphs = mutableListOf<String>()
+                fun fail(error: Exception) {
+                    translator.close()
+                    Log.e(TAG, "Falha na tradução local", error)
+                    showResultPanel(text, "Não foi possível concluir a tradução. O texto original foi preservado.")
+                    say("Não consegui concluir a tradução. O texto reconhecido está na tela.")
+                }
+                fun nextParagraph(p: Int) {
+                    if (p >= paragraphs.size) {
+                        translator.close()
+                        val result = translatedParagraphs.joinToString("\n\n")
+                        showResultPanel(text, result)
+                        say(result)
+                        return
                     }
-                    .addOnFailureListener { e ->
-                        translator.close(); Log.e(TAG, "Erro na tradução", e); say("Erro na tradução.")
+                    val parts = splitParagraph(paragraphs[p])
+                    val translatedParts = mutableListOf<String>()
+                    fun nextPart(i: Int) {
+                        if (i >= parts.size) {
+                            val joiner = if (sourceLang == TranslateLanguage.ENGLISH) " " else ""
+                            translatedParagraphs.add(translatedParts.joinToString(joiner))
+                            nextParagraph(p + 1)
+                            return
+                        }
+                        translator.translate(parts[i])
+                            .addOnSuccessListener { translatedParts.add(it); nextPart(i + 1) }
+                            .addOnFailureListener { fail(it) }
                     }
+                    nextPart(0)
+                }
+                nextParagraph(0)
             }
-            .addOnFailureListener { e ->
-                translator.close(); Log.e(TAG, "Falha ao baixar o modelo de tradução", e)
-                say("Não consegui baixar o modelo de tradução. Verifique a internet.")
+            .addOnFailureListener { error ->
+                translator.close()
+                Log.e(TAG, "Modelo de tradução indisponível", error)
+                showResultPanel(text, "O modelo ainda não está instalado. Conecte-se uma vez para baixá-lo; depois poderá traduzir offline.")
+                say("O modelo de tradução precisa ser baixado uma vez.")
             }
+    }
+
+    // Painel permite comparar e copiar o texto original e a tradução sem confundi-los.
+    private fun showResultPanel(source: String, translated: String) {
+        handler.post {
+            removeResultPanel()
+            val gold = android.graphics.Color.rgb(255, 205, 90)
+            val panel = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(20, 18, 20, 18)
+                background = GradientDrawable().apply {
+                    setColor(android.graphics.Color.rgb(13, 13, 13))
+                    cornerRadius = 24f
+                    setStroke(2, gold)
+                }
+            }
+            val heading = TextView(this).apply {
+                text = "AURORA 455  •  RESULTADO"
+                textSize = 16f
+                setTextColor(gold)
+                typeface = Typeface.DEFAULT_BOLD
+            }
+            panel.addView(heading)
+            val scroll = ScrollView(this)
+            val body = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            fun section(label: String, value: String) {
+                body.addView(TextView(this).apply {
+                    text = label
+                    textSize = 13f
+                    setTextColor(gold)
+                    typeface = Typeface.DEFAULT_BOLD
+                    setPadding(0, 14, 0, 5)
+                })
+                body.addView(TextView(this).apply {
+                    text = value
+                    textSize = 15f
+                    setTextColor(android.graphics.Color.WHITE)
+                    setTextIsSelectable(true)
+                    setPadding(0, 0, 0, 14)
+                })
+            }
+            section("TEXTO RECONHECIDO (ORIGINAL)", source)
+            section("TRADUÇÃO PARA PORTUGUÊS", translated)
+            scroll.addView(body)
+            panel.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+            panel.addView(Button(this).apply {
+                text = "FECHAR"
+                setTextColor(android.graphics.Color.BLACK)
+                backgroundTintList = android.content.res.ColorStateList.valueOf(gold)
+                setOnClickListener { removeResultPanel() }
+            })
+            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+            val params = WindowManager.LayoutParams(
+                (screenW - 36).coerceAtLeast(280), (screenH * 0.78f).toInt().coerceAtLeast(420),
+                type, WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                PixelFormat.TRANSLUCENT
+            ).apply { gravity = Gravity.CENTER }
+            try { wm.addView(panel, params); resultPanel = panel }
+            catch (e: Exception) { Log.e(TAG, "Falha ao abrir painel de resultado", e); toast("Tradução concluída.") }
+        }
+    }
+
+    private fun removeResultPanel() {
+        resultPanel?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+        resultPanel = null
     }
 
     private fun configurePortugueseVoice() {

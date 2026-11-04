@@ -9,7 +9,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="Leitor de Tela"
+        android:label="Aurora 455"\n        android:icon="@drawable/ic_launcher"\n        android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.DarkActionBar">
 

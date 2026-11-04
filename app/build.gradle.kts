@@ -10,8 +10,8 @@ android {
         applicationId = "com.example.telaleitor"
         minSdk = 24
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.2"
+        versionCode = 4
+        versionName = "1.3"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -28,4 +28,6 @@ dependencies {
     implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
     implementation("com.google.mlkit:text-recognition-korean:16.0.1")
     implementation("com.google.mlkit:translate:17.0.3")
+    // Modelo de classificação de imagens empacotado no APK (processamento local).
+    implementation("com.google.mlkit:image-labeling:17.0.9")
 }

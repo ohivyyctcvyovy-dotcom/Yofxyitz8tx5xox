@@ -382,7 +382,7 @@ class ScreenReaderService : Service() {
                 say("Não consegui identificar elementos com segurança nessa área. Tente selecionar uma região maior, mais nítida e sem movimento.")
             } else {
                 say("$description A análise é feita no aparelho. Ela identifica elementos e texto, mas não compreende com segurança toda a ação ou o contexto do vídeo.")
-                showResultPanel("ANÁLISE VISUAL\nElementos: ${labelNames.joinToString(", ").ifBlank { "não identificados" }}\n\nTexto detectado:\n${visibleText.ifBlank { "nenhum texto legível" }}", description)
+                showResultPanel("ANÁLISE VISUAL\nElementos: ${labelNames.joinToString(", ").ifBlank { "não identificados" }}\n\nTexto detectado:\n${visibleText.ifBlank { "nenhum texto legível" }}", description, "ANÁLISE DA IMAGEM", "DESCRIÇÃO DOS ELEMENTOS")
             }
         }
         labeler.process(InputImage.fromBitmap(bitmap, 0))
@@ -574,7 +574,7 @@ class ScreenReaderService : Service() {
     }
 
     // Painel permite comparar e copiar o texto original e a tradução sem confundi-los.
-    private fun showResultPanel(source: String, translated: String) {
+    private fun showResultPanel(source: String, translated: String, sourceTitle: String = "TEXTO RECONHECIDO (ORIGINAL)", translatedTitle: String = "TRADUÇÃO PARA PORTUGUÊS") {
         handler.post {
             removeResultPanel()
             val gold = android.graphics.Color.rgb(255, 205, 90)
@@ -612,8 +612,8 @@ class ScreenReaderService : Service() {
                     setPadding(0, 0, 0, 14)
                 })
             }
-            section("TEXTO RECONHECIDO (ORIGINAL)", source)
-            section("TRADUÇÃO PARA PORTUGUÊS", translated)
+            section(sourceTitle, source)
+            section(translatedTitle, translated)
             scroll.addView(body)
             panel.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
             panel.addView(Button(this).apply {

@@ -2,11 +2,10 @@ name: Build APK 455
 on:
   workflow_dispatch:
   push:
+    branches:
+      - feature/visao-inteligente-offline
     paths:
       - 'app/**'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - 'gradle.properties'
       - '.github/workflows/build-apk.yml'
 
 jobs:
@@ -23,10 +22,10 @@ jobs:
       - name: Instalar Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Compilar APK
-        run: gradle assembleDebug
+        run: gradle --no-daemon assembleDebug
       - name: Publicar APK
         uses: actions/upload-artifact@v4
         with:
-          name: 455-apk
+          name: leitor-455-visao-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error

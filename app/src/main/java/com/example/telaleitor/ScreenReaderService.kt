@@ -86,6 +86,26 @@ class ScreenReaderService : Service() {
     private var screenW = 0
     private var screenH = 0
     private var selectionModeVision = false
+    private var displayManager: DisplayManager? = null
+    private var savedButtonX = 12
+    private var savedButtonY = 260
+    private var orientationWidth = 0
+    private var orientationHeight = 0
+
+    private val displayListener = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) {}
+        override fun onDisplayRemoved(displayId: Int) {}
+        override fun onDisplayChanged(displayId: Int) {
+            if (displayId == android.view.Display.DEFAULT_DISPLAY) {
+                handler.removeCallbacks(rotationRefresh)
+                handler.postDelayed(rotationRefresh, 300)
+            }
+        }
+    }
+
+    private val rotationRefresh = Runnable {
+        refreshCaptureForRotation()
+    }
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
@@ -97,6 +117,11 @@ class ScreenReaderService : Service() {
     override fun onCreate() {
         super.onCreate()
         wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        displayManager = getSystemService(Context.DISPLAY_SERVICE) as DisplayManager
+        displayManager?.registerDisplayListener(displayListener, handler)
+        val prefs = getSharedPreferences("aurora_overlay", Context.MODE_PRIVATE)
+        savedButtonX = prefs.getInt("button_x", 12)
+        savedButtonY = prefs.getInt("button_y", 260)
         createChannel()
         tts = TextToSpeech(this) { status ->
             ttsReady = status == TextToSpeech.SUCCESS
@@ -139,6 +164,8 @@ class ScreenReaderService : Service() {
         removeOverlay()
         removeFloatingButton()
         removeResultPanel()
+        displayManager?.unregisterDisplayListener(displayListener)
+        handler.removeCallbacks(rotationRefresh)
         releaseCapture()
         tts?.stop()
         tts?.shutdown()
@@ -183,10 +210,58 @@ class ScreenReaderService : Service() {
         val metrics = resources.displayMetrics
         screenW = metrics.widthPixels
         screenH = metrics.heightPixels
+        orientationWidth = screenW
+        orientationHeight = screenH
         val r = ImageReader.newInstance(screenW, screenH, PixelFormat.RGBA_8888, 2)
         reader = r
         virtualDisplay = p.createVirtualDisplay("ScreenReader", screenW, screenH, metrics.densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, handler)
+    }
+
+    // Recria a superfície de captura quando o aparelho muda entre retrato e paisagem.
+    private fun refreshCaptureForRotation() {
+        if (projection == null) return
+        val metrics = resources.displayMetrics
+        val newW = metrics.widthPixels
+        val newH = metrics.heightPixels
+        if (newW <= 0 || newH <= 0 || (newW == orientationWidth && newH == orientationHeight)) return
+
+        screenW = newW
+        screenH = newH
+        orientationWidth = newW
+        orientationHeight = newH
+
+        val oldReader = reader
+        val newReader = ImageReader.newInstance(newW, newH, PixelFormat.RGBA_8888, 2)
+        reader = newReader
+        try {
+            virtualDisplay?.resize(newW, newH, metrics.densityDpi)
+            virtualDisplay?.setSurface(newReader.surface)
+        } catch (error: Exception) {
+            Log.e(TAG, "Falha ao ajustar a captura após girar a tela", error)
+        }
+        try { oldReader?.close() } catch (_: Exception) {}
+
+        removeOverlay()
+        removeFloatingMenu()
+        floatingButton?.let { button ->
+            val params = button.layoutParams as? WindowManager.LayoutParams
+            if (params != null) {
+                params.x = savedButtonX.coerceIn(0, (newW - 54).coerceAtLeast(0))
+                params.y = savedButtonY.coerceIn(0, (newH - 54).coerceAtLeast(0))
+                try { wm.updateViewLayout(button, params) } catch (_: Exception) {}
+                savedButtonX = params.x
+                savedButtonY = params.y
+            }
+        }
+        resultPanel?.let { panel ->
+            val params = panel.layoutParams as? WindowManager.LayoutParams
+            if (params != null) {
+                params.width = (newW - 32).coerceAtLeast(240)
+                params.height = (newH * 0.78f).toInt().coerceAtLeast(240)
+                try { wm.updateViewLayout(panel, params) } catch (_: Exception) {}
+            }
+        }
     }
 
     private fun releaseCapture() {
@@ -202,7 +277,7 @@ class ScreenReaderService : Service() {
         }
     }
 
-    // Botão principal compacto; as ferramentas aparecem em botões separados.
+    // Botão principal: toque curto lê a tela; toque longo abre as ferramentas.
     private var floatingMenu: View? = null
 
     private fun showFloatingButton() {
@@ -212,68 +287,142 @@ class ScreenReaderService : Service() {
             else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
         val params = WindowManager.LayoutParams(54, 54, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = 12; y = 260 }
+            PixelFormat.TRANSLUCENT).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = savedButtonX.coerceIn(0, (resources.displayMetrics.widthPixels - 54).coerceAtLeast(0))
+                y = savedButtonY.coerceIn(0, (resources.displayMetrics.heightPixels - 54).coerceAtLeast(0))
+            }
         val button = TextView(this).apply {
             text = "♛"; textSize = 21f; setTextColor(gold); typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            background = GradientDrawable().apply { setColor(android.graphics.Color.rgb(15,15,15)); cornerRadius=100f; setStroke(2,gold) }
+            background = GradientDrawable().apply {
+                setColor(android.graphics.Color.rgb(15, 15, 15))
+                cornerRadius = 100f
+                setStroke(2, gold)
+            }
             elevation = 12f
-            contentDescription = "Aurora 455. Toque para abrir as ferramentas ou arraste para mover."
+            contentDescription = "Aurora 455. Toque para ler a tela. Toque e segure para abrir as ferramentas. Arraste para mover."
         }
-        var downX=0f; var downY=0f; var startX=0; var startY=0
+        var downX = 0f
+        var downY = 0f
+        var startX = 0
+        var startY = 0
+        var moved = false
+        var longPressed = false
+        val longPress = Runnable {
+            if (!moved) {
+                longPressed = true
+                showFloatingMenu(params)
+            }
+        }
         button.setOnTouchListener { view, event ->
-            when(event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { downX=event.rawX; downY=event.rawY; startX=params.x; startY=params.y; true }
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    startX = params.x
+                    startY = params.y
+                    moved = false
+                    longPressed = false
+                    handler.postDelayed(longPress, 520)
+                    true
+                }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx=(event.rawX-downX).toInt(); val dy=(event.rawY-downY).toInt()
-                    if(kotlin.math.abs(dx)>5 || kotlin.math.abs(dy)>5) {
-                        params.x=startX+dx; params.y=startY+dy
-                        try { wm.updateViewLayout(view,params) } catch(_:Exception) {}
-                    }; true
+                    val dx = (event.rawX - downX).toInt()
+                    val dy = (event.rawY - downY).toInt()
+                    if (kotlin.math.abs(dx) > 7 || kotlin.math.abs(dy) > 7) {
+                        moved = true
+                        handler.removeCallbacks(longPress)
+                        params.x = (startX + dx).coerceIn(0, (resources.displayMetrics.widthPixels - 54).coerceAtLeast(0))
+                        params.y = (startY + dy).coerceIn(0, (resources.displayMetrics.heightPixels - 54).coerceAtLeast(0))
+                        try { wm.updateViewLayout(view, params) } catch (_: Exception) {}
+                    }
+                    true
                 }
                 MotionEvent.ACTION_UP -> {
-                    val moved=kotlin.math.abs(event.rawX-downX)>8 || kotlin.math.abs(event.rawY-downY)>8
-                    if(!moved) {
-                        if(floatingMenu==null) showFloatingMenu(params) else removeFloatingMenu()
-                    }; true
+                    handler.removeCallbacks(longPress)
+                    if (moved) {
+                        savedButtonX = params.x
+                        savedButtonY = params.y
+                        getSharedPreferences("aurora_overlay", Context.MODE_PRIVATE).edit()
+                            .putInt("button_x", savedButtonX)
+                            .putInt("button_y", savedButtonY)
+                            .apply()
+                    } else if (!longPressed) {
+                        removeFloatingMenu()
+                        readWholeScreen()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    handler.removeCallbacks(longPress)
+                    true
                 }
                 else -> true
             }
         }
-        try { wm.addView(button,params); floatingButton=button }
-        catch(e:Exception) { Log.e(TAG,"Não foi possível mostrar o botão flutuante",e) }
+        try { wm.addView(button, params); floatingButton = button }
+        catch (e: Exception) { Log.e(TAG, "Não foi possível mostrar o botão flutuante", e) }
     }
 
     private fun showFloatingMenu(anchor: WindowManager.LayoutParams) {
-        if(floatingMenu!=null) return
-        val gold=android.graphics.Color.rgb(255,205,90)
-        val menu=LinearLayout(this).apply {
-            orientation=LinearLayout.VERTICAL; setPadding(6,6,6,6)
-            background=GradientDrawable().apply { setColor(android.graphics.Color.rgb(17,17,17)); cornerRadius=18f; setStroke(2,gold) }
-            elevation=14f
+        if (floatingMenu != null) return
+        val gold = android.graphics.Color.rgb(255, 205, 90)
+        val menu = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(7, 7, 7, 7)
+            background = GradientDrawable().apply {
+                setColor(android.graphics.Color.rgb(17, 17, 17))
+                cornerRadius = 18f
+                setStroke(2, gold)
+            }
+            elevation = 14f
         }
-        fun action(label:String, description:String, onClick:()->Unit) {
-            val item=TextView(this).apply {
-                text=label; textSize=14f; gravity=Gravity.CENTER; setTextColor(android.graphics.Color.WHITE)
-                contentDescription=description
-                setPadding(16,12,16,12)
-                background=GradientDrawable().apply { setColor(android.graphics.Color.rgb(32,32,32)); cornerRadius=12f }
+        fun action(label: String, description: String, onClick: () -> Unit) {
+            val item = TextView(this).apply {
+                text = label
+                textSize = 14f
+                gravity = Gravity.CENTER_VERTICAL
+                setTextColor(android.graphics.Color.WHITE)
+                contentDescription = description
+                setPadding(18, 0, 12, 0)
+                background = GradientDrawable().apply {
+                    setColor(android.graphics.Color.rgb(32, 32, 32))
+                    cornerRadius = 12f
+                }
                 setOnClickListener { removeFloatingMenu(); onClick() }
             }
-            menu.addView(item,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,48))
-            val gap=View(this); menu.addView(gap,LinearLayout.LayoutParams(1,4))
+            menu.addView(item, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 46))
+            menu.addView(View(this), LinearLayout.LayoutParams(1, 5))
         }
-        action("TELA","Ler e traduzir a tela inteira") { readWholeScreen() }
-        action("TEXTO","Marcar uma área para ler e traduzir") { selectionModeVision=false; showSelection() }
-        action("VISÃO","Identificar elementos e texto em uma área") { selectionModeVision=true; showSelection() }
-        action("ENCERRAR","Fechar o leitor Aurora 455") { stopSelf() }
-        val type=if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        action("◉  TELA INTEIRA", "Ler e traduzir a tela inteira") { readWholeScreen() }
+        action("▣  SELECIONAR TEXTO", "Marcar uma área para ler e traduzir") {
+            selectionModeVision = false
+            showSelection()
+        }
+        action("◇  VISÃO", "Identificar elementos e texto em uma área") {
+            selectionModeVision = true
+            showSelection()
+        }
+        action("×  ENCERRAR", "Fechar o leitor Aurora 455") { stopSelf() }
+
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
-        val p=WindowManager.LayoutParams(148,ViewGroup.LayoutParams.WRAP_CONTENT,type,
+        val menuWidth = 190
+        val menuHeight = 220
+        val displayW = resources.displayMetrics.widthPixels
+        val displayH = resources.displayMetrics.heightPixels
+        val menuX = if (anchor.x + 54 + menuWidth > displayW) anchor.x - menuWidth + 4 else anchor.x
+        val menuY = (anchor.y + 58).coerceIn(8, (displayH - menuHeight).coerceAtLeast(8))
+        val p = WindowManager.LayoutParams(menuWidth, ViewGroup.LayoutParams.WRAP_CONTENT, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT).apply { gravity=Gravity.TOP or Gravity.START; x=anchor.x; y=anchor.y+60 }
-        try { wm.addView(menu,p); floatingMenu=menu }
-        catch(e:Exception) { Log.e(TAG,"Falha ao abrir menu flutuante",e) }
+            PixelFormat.TRANSLUCENT).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = menuX.coerceIn(0, (displayW - menuWidth).coerceAtLeast(0))
+                y = menuY
+            }
+        try { wm.addView(menu, p); floatingMenu = menu }
+        catch (e: Exception) { Log.e(TAG, "Falha ao abrir menu flutuante", e) }
     }
 
     private fun removeFloatingMenu() {

@@ -78,6 +78,7 @@ class ScreenReaderService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var overlay: SelectionView? = null
     private var floatingButton: TextView? = null
+    private var floatingExpanded = false
     private var resultPanel: View? = null
     private var sourceLang: String = TranslateLanguage.JAPANESE
     private var tts: TextToSpeech? = null
@@ -201,50 +202,67 @@ class ScreenReaderService : Service() {
         }
     }
 
-    // Botão segmentado: toque em cada faixa; arraste para reposicionar.
+    // Botão compacto: fica como um pequeno ícone e só abre as ações quando tocado.
     private fun showFloatingButton() {
         if (floatingButton != null || !Settings.canDrawOverlays(this)) return
+        floatingExpanded = false
         val button = TextView(this).apply {
-            text = "♛ 455  |  TELA  |  TEXTO  |  VISÃO  |  ×"
-            textSize = 12f
-            setTextColor(android.graphics.Color.WHITE)
+            text = "♛"
+            textSize = 20f
+            setTextColor(android.graphics.Color.rgb(255, 205, 90))
             typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
-            setPadding(12, 14, 12, 14)
+            setPadding(0, 0, 0, 0)
             background = GradientDrawable().apply {
-                setColor(android.graphics.Color.rgb(12, 12, 12))
-                cornerRadius = 40f
+                setColor(android.graphics.Color.rgb(15, 15, 15))
+                cornerRadius = 100f
                 setStroke(2, android.graphics.Color.rgb(255, 205, 90))
             }
             elevation = 12f
-            contentDescription = "Leitor 455. TELA lê a tela inteira. TEXTO seleciona uma região para ler e traduzir. VISÃO seleciona uma região para reconhecer objetos e elementos visuais localmente. X encerra. Arraste para mover."
+            contentDescription = "Aurora 455. Toque para abrir as ferramentas ou arraste para mover."
         }
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
-        val params = WindowManager.LayoutParams(WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
-            type, WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+        val params = WindowManager.LayoutParams(54, 54, type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = 12; y = 260 }
         var downX = 0f; var downY = 0f; var startX = 0; var startY = 0
         button.setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = event.rawX; downY = event.rawY; startX = params.x; startY = params.y; true
+                    downX = event.rawX; downY = event.rawY
+                    startX = params.x; startY = params.y
+                    true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    params.x = startX + (event.rawX - downX).toInt()
-                    params.y = startY + (event.rawY - downY).toInt()
-                    try { wm.updateViewLayout(view, params) } catch (_: Exception) {}
+                    val dx = (event.rawX - downX).toInt()
+                    val dy = (event.rawY - downY).toInt()
+                    if (kotlin.math.abs(dx) > 5 || kotlin.math.abs(dy) > 5) {
+                        params.x = startX + dx; params.y = startY + dy
+                        try { wm.updateViewLayout(view, params) } catch (_: Exception) {}
+                    }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     val moved = kotlin.math.abs(event.rawX - downX) > 8 || kotlin.math.abs(event.rawY - downY) > 8
                     if (!moved) {
-                        val position = event.x / view.width.toFloat()
-                        when {
-                            position >= 0.91f -> stopSelf()
-                            position >= 0.68f -> { selectionModeVision = true; showSelection() }
-                            position >= 0.39f -> { selectionModeVision = false; showSelection() }
-                            else -> readWholeScreen()
+                        if (!floatingExpanded) {
+                            floatingExpanded = true
+                            button.text = "TELA\nTEXTO\nVISÃO\n×"
+                            button.textSize = 12f
+                            button.setTextColor(android.graphics.Color.WHITE)
+                            button.setPadding(10, 8, 10, 8)
+                            params.width = 86; params.height = 190
+                            button.contentDescription = "TELA lê a tela. TEXTO seleciona uma área para reconhecer e traduzir. VISÃO identifica elementos. X encerra."
+                            try { wm.updateViewLayout(view, params) } catch (_: Exception) {}
+                        } else {
+                            val fraction = event.y / view.height.toFloat().coerceAtLeast(1f)
+                            when {
+                                fraction < 0.27f -> { floatingExpanded = false; button.text = "♛"; button.textSize = 20f; button.setTextColor(android.graphics.Color.rgb(255,205,90)); button.setPadding(0,0,0,0); params.width=54; params.height=54; wm.updateViewLayout(view,params); readWholeScreen() }
+                                fraction < 0.52f -> { floatingExpanded = false; collapseFloatingButton(button, params); selectionModeVision = false; showSelection() }
+                                fraction < 0.77f -> { floatingExpanded = false; collapseFloatingButton(button, params); selectionModeVision = true; showSelection() }
+                                else -> stopSelf()
+                            }
                         }
                     }
                     true
@@ -254,6 +272,15 @@ class ScreenReaderService : Service() {
         }
         try { wm.addView(button, params); floatingButton = button }
         catch (e: Exception) { Log.e(TAG, "Não foi possível mostrar o botão flutuante", e) }
+    }
+
+    private fun collapseFloatingButton(button: TextView, params: WindowManager.LayoutParams) {
+        button.text = "♛"
+        button.textSize = 20f
+        button.setTextColor(android.graphics.Color.rgb(255, 205, 90))
+        button.setPadding(0, 0, 0, 0)
+        params.width = 54; params.height = 54
+        try { wm.updateViewLayout(button, params) } catch (_: Exception) {}
     }
 
     private fun removeFloatingButton() {
@@ -327,30 +354,60 @@ class ScreenReaderService : Service() {
         return Bitmap.createBitmap(bmp, left, top, right - left, bottom - top)
     }
 
-    // Análise visual offline: o modelo ML Kit é empacotado no APK; a imagem não é enviada à rede.
+    // Análise visual local combinando rótulos de objetos e leitura do texto visível.
+    // Isto identifica elementos e palavras, mas não inventa uma narrativa que o modelo não detectou.
     private fun analyzeVisual(bitmap: Bitmap) {
         say("Analisando a região selecionada.")
         val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
+        val recognizer = when (sourceLang) {
+            TranslateLanguage.JAPANESE -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
+            TranslateLanguage.CHINESE -> TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+            TranslateLanguage.KOREAN -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
+            else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        }
+        var labelsDone = false
+        var textDone = false
+        var labelNames = emptyList<String>()
+        var visibleText = ""
+        var failed = false
+        fun finishIfReady() {
+            if (!labelsDone || !textDone) return
+            labeler.close()
+            recognizer.close()
+            val parts = mutableListOf<String>()
+            if (labelNames.isNotEmpty()) parts.add("Elementos que consegui identificar: ${labelNames.joinToString(", ")}.")
+            if (visibleText.isNotBlank()) parts.add("Texto visível na imagem: ${visibleText.take(900)}.")
+            val description = parts.joinToString(" ")
+            if (description.isBlank()) {
+                say("Não consegui identificar elementos com segurança nessa área. Tente selecionar uma região maior, mais nítida e sem movimento.")
+            } else {
+                say("$description A análise é feita no aparelho. Ela identifica elementos e texto, mas não compreende com segurança toda a ação ou o contexto do vídeo.")
+                showResultPanel("ANÁLISE VISUAL\nElementos: ${labelNames.joinToString(", ").ifBlank { "não identificados" }}\n\nTexto detectado:\n${visibleText.ifBlank { "nenhum texto legível" }}", description)
+            }
+        }
         labeler.process(InputImage.fromBitmap(bitmap, 0))
             .addOnSuccessListener { labels ->
-                labeler.close()
-                val selected = labels.filter { it.confidence >= 0.48f }
-                    .sortedByDescending { it.confidence }.take(7)
-                if (selected.isEmpty()) {
-                    say("Não consegui reconhecer objetos com confiança suficiente nessa região. Tente selecionar uma área maior e mais nítida.")
-                } else {
-                    val names = selected.map { translateVisualLabel(it.text) }.distinct()
-                    val description = when (names.size) {
-                        1 -> "Na região selecionada, identifiquei: ${names[0]}."
-                        else -> "Na região selecionada, identifiquei estes elementos: ${names.joinToString(", ")}."
-                    }
-                    say("$description A análise é feita no próprio aparelho e pode não compreender toda a situação ou o contexto da imagem.")
-                }
+                labelNames = labels.filter { it.confidence >= 0.30f }
+                    .sortedByDescending { it.confidence }.take(8)
+                    .map { translateVisualLabel(it.text) }.distinct()
+                labelsDone = true
+                finishIfReady()
             }
             .addOnFailureListener { error ->
-                labeler.close()
-                Log.e(TAG, "Falha na análise visual local", error)
-                say("Não consegui analisar essa imagem. Tente novamente com uma região mais clara.")
+                Log.e(TAG, "Falha nos rótulos visuais", error)
+                labelsDone = true
+                finishIfReady()
+            }
+        recognizer.process(InputImage.fromBitmap(bitmap, 0))
+            .addOnSuccessListener { result ->
+                visibleText = result.textBlocks.joinToString("\n") { it.text.trim() }.trim()
+                textDone = true
+                finishIfReady()
+            }
+            .addOnFailureListener { error ->
+                Log.w(TAG, "Falha ao ler texto na análise visual", error)
+                textDone = true
+                finishIfReady()
             }
     }
 

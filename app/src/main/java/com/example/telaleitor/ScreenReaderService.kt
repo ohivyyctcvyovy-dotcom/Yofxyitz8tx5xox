@@ -465,7 +465,7 @@ class ScreenReaderService : Service() {
     private fun readWholeScreen() {
         if (projection == null) { say("A captura não está ativa. Inicie o leitor novamente."); return }
         floatingButton?.visibility = View.GONE
-        grabWholeFrame(0)
+        handler.postDelayed({ grabWholeFrame(0) }, 180)
     }
 
     private fun grabWholeFrame(tries: Int) {

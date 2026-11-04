@@ -244,6 +244,7 @@ class ScreenReaderService : Service() {
 
         removeOverlay()
         removeFloatingMenu()
+        floatingButton?.visibility = View.VISIBLE
         floatingButton?.let { button ->
             val params = button.layoutParams as? WindowManager.LayoutParams
             if (params != null) {
@@ -463,6 +464,7 @@ class ScreenReaderService : Service() {
 
     private fun readWholeScreen() {
         if (projection == null) { say("A captura não está ativa. Inicie o leitor novamente."); return }
+        floatingButton?.visibility = View.GONE
         grabWholeFrame(0)
     }
 

@@ -438,9 +438,15 @@ class ScreenReaderService : Service() {
 
     private fun showSelection() {
         if (overlay != null) return
+        removeFloatingMenu()
+        floatingButton?.visibility = View.GONE
         overlay = SelectionView(this) { rect ->
             removeOverlay()
-            if (rect != null) handler.postDelayed({ grabFrame(rect, 0) }, 400)
+            if (rect != null) {
+                handler.postDelayed({ grabFrame(rect, 0) }, 350)
+            } else {
+                floatingButton?.visibility = View.VISIBLE
+            }
         }
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
@@ -466,10 +472,16 @@ class ScreenReaderService : Service() {
         val image = r.acquireLatestImage()
         if (image == null) {
             if (tries < 6) handler.postDelayed({ grabWholeFrame(tries + 1) }, 250)
-            else say("Não consegui capturar a tela. Tente novamente.")
+            else {
+                floatingButton?.visibility = View.VISIBLE
+                say("Não consegui capturar a tela. Tente novamente.")
+            }
             return
         }
-        val full = imageToBitmap(image); image.close(); readText(full)
+        val full = imageToBitmap(image)
+        image.close()
+        floatingButton?.visibility = View.VISIBLE
+        readText(full)
     }
 
     private fun grabFrame(rect: RectF, tries: Int) {
@@ -478,10 +490,15 @@ class ScreenReaderService : Service() {
         val image = r.acquireLatestImage()
         if (image == null) {
             if (tries < 5) handler.postDelayed({ grabFrame(rect, tries + 1) }, 300)
-            else say("Não consegui capturar a tela.")
+            else {
+                floatingButton?.visibility = View.VISIBLE
+                say("Não consegui capturar a tela.")
+            }
             return
         }
-        val full = imageToBitmap(image); image.close()
+        val full = imageToBitmap(image)
+        image.close()
+        floatingButton?.visibility = View.VISIBLE
         val selected = cropBitmap(full, rect)
         if (selectionModeVision) analyzeVisual(selected) else readText(selected)
     }

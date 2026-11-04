@@ -7,170 +7,119 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
-import kotlin.math.max
-import kotlin.math.min
+import kotlin.math.abs
 
-/** Seleção redimensionável: o usuário confirma a área antes de iniciar OCR/tradução. */
+/**
+ * Seleção persistente: o primeiro arrasto marca a área.
+ * Depois, o pequeno puxador redondo no canto inferior direito ajusta o tamanho
+ * ao arrastar para cima/baixo. Não há barra deslizante.
+ */
 class SelectionView(
     context: Context,
     private val onDone: (RectF?) -> Unit
 ) : View(context) {
-    private var startX = 0f
-    private var startY = 0f
-    private var curX = 0f
-    private var curY = 0f
-    private var hasSelection = false
-    private var dragging = false
-    private var scale = 1f
-    private var sliderActive = false
+    private var startX=0f
+    private var startY=0f
+    private var endX=0f
+    private var endY=0f
+    private var hasSelection=false
+    private var drawing=false
+    private var resizing=false
+    private var resizeStartY=0f
+    private var resizeStartScale=1f
+    private var scale=1f
 
-    private val dim = Paint().apply { color = Color.argb(155, 0, 0, 0) }
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(42, 255, 205, 90) }
-    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = 4f
-        color = Color.rgb(255, 205, 90)
-    }
-    private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textSize = 38f
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
-    }
-    private val small = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textSize = 27f
-    }
-    private val button = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(24, 24, 24)
-    }
-    private val gold = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(255, 205, 90)
-    }
-    private val center = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.BLACK
-        textSize = 30f
-        textAlign = Paint.Align.CENTER
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
-    }
+    private val dim=Paint().apply { color=Color.argb(150,0,0,0) }
+    private val fill=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.argb(38,255,205,90) }
+    private val outline=Paint(Paint.ANTI_ALIAS_FLAG).apply { style=Paint.Style.STROKE; strokeWidth=3.5f; color=Color.rgb(255,205,90) }
+    private val handle=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.rgb(255,205,90) }
+    private val handleInner=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.rgb(20,20,20) }
+    private val title=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.WHITE; textSize=34f; typeface=android.graphics.Typeface.DEFAULT_BOLD }
+    private val hint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.WHITE; textSize=25f }
+    private val button=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.rgb(25,25,25) }
+    private val gold=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.rgb(255,205,90) }
+    private val buttonText=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.WHITE; textSize=25f; textAlign=Paint.Align.CENTER; typeface=android.graphics.Typeface.DEFAULT_BOLD }
+    private val confirmText=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.BLACK; textSize=23f; textAlign=Paint.Align.CENTER; typeface=android.graphics.Typeface.DEFAULT_BOLD }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), dim)
-        canvas.drawText("Marque a área do texto", 28f, 82f, text)
-        canvas.drawText("Arraste o dedo para criar a seleção", 28f, 126f, small)
-
-        if (hasSelection || dragging) {
-            val r = currentRect()
-            canvas.drawRoundRect(r, 12f, 12f, fill)
-            canvas.drawRoundRect(r, 12f, 12f, stroke)
-            val handle = 18f
-            canvas.drawCircle(r.left, r.top, handle, gold)
-            canvas.drawCircle(r.right, r.bottom, handle, gold)
-            canvas.drawText("Área selecionada", 28f, height - 250f, small)
+    override fun onDraw(c:Canvas) {
+        super.onDraw(c)
+        c.drawRect(0f,0f,width.toFloat(),height.toFloat(),dim)
+        c.drawText("Marque a área desejada",24f,64f,title)
+        c.drawText(if(hasSelection) "Puxe a bolinha para cima/baixo para ajustar" else "Arraste o dedo para desenhar a marcação",24f,104f,hint)
+        if(hasSelection || drawing) {
+            val r=currentRect()
+            c.drawRoundRect(r,10f,10f,fill); c.drawRoundRect(r,10f,10f,outline)
+            c.drawCircle(r.right,r.bottom,23f,handle); c.drawCircle(r.right,r.bottom,10f,handleInner)
+            c.drawText("${(scale*100).toInt()}%",(r.left+12f).coerceAtLeast(12f),(r.top-12f).coerceAtLeast(142f),hint)
         }
-
-        val controlTop = height - 210f
-        val sliderLeft = 38f
-        val sliderRight = width - 38f
-        canvas.drawRoundRect(sliderLeft, controlTop, sliderRight, controlTop + 12f, 8f, 8f, button)
-        val sliderX = sliderLeft + ((scale - 0.65f) / (1.75f - 0.65f)) * (sliderRight - sliderLeft)
-        canvas.drawRoundRect(sliderLeft, controlTop, sliderX, controlTop + 12f, 8f, 8f, gold)
-        canvas.drawCircle(sliderX, controlTop + 6f, 17f, gold)
-        canvas.drawText("Tamanho da seleção: ${(scale * 100).toInt()}%", 38f, controlTop - 18f, small)
-
-        val cancel = RectF(24f, height - 145f, width * 0.32f, height - 55f)
-        val resize = RectF(width * 0.36f, height - 145f, width * 0.64f, height - 55f)
-        val confirm = RectF(width * 0.68f, height - 145f, width - 24f, height - 55f)
-        canvas.drawRoundRect(cancel, 18f, 18f, button)
-        canvas.drawRoundRect(resize, 18f, 18f, button)
-        canvas.drawRoundRect(confirm, 18f, 18f, gold)
-        canvas.drawText("CANCELAR", cancel.centerX(), cancel.centerY() + 10f, center.apply { color = Color.WHITE })
-        canvas.drawText("AJUSTAR", resize.centerX(), resize.centerY() + 10f, center)
-        canvas.drawText("LER / TRADUZIR", confirm.centerX(), confirm.centerY() + 10f, center.apply { color = Color.BLACK })
+        val top=height-112f
+        val cancel=RectF(18f,top,width*0.34f,height-22f)
+        val confirm=RectF(width*0.38f,top,width-18f,height-22f)
+        c.drawRoundRect(cancel,16f,16f,button); c.drawRoundRect(confirm,16f,16f,gold)
+        c.drawText("CANCELAR",cancel.centerX(),cancel.centerY()+9f,buttonText)
+        c.drawText("LER / TRADUZIR",confirm.centerX(),confirm.centerY()+8f,confirmText)
     }
 
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        val controlTop = height - 210f
-        val sliderLeft = 38f
-        val sliderRight = width - 38f
-        val cancel = RectF(24f, height - 145f, width * 0.32f, height - 55f)
-        val resize = RectF(width * 0.36f, height - 145f, width * 0.64f, height - 55f)
-        val confirm = RectF(width * 0.68f, height - 145f, width - 24f, height - 55f)
-
-        when (event.actionMasked) {
+    override fun onTouchEvent(e:MotionEvent):Boolean {
+        val cancel=RectF(18f,height-112f,width*0.34f,height-22f)
+        val confirm=RectF(width*0.38f,height-112f,width-18f,height-22f)
+        when(e.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                if (hasSelection && event.y in (controlTop - 35f)..(controlTop + 35f)) {
-                    sliderActive = true
-                    updateScale(event.x, sliderLeft, sliderRight)
-                } else if (hasSelection && event.y > height - 160f) {
-                    // Os botões são tratados em ACTION_UP.
-                } else {
-                    startX = event.rawX
-                    startY = event.rawY
-                    curX = startX
-                    curY = startY
-                    hasSelection = false
-                    dragging = true
-                    invalidate()
+                if(e.y>=height-125f) return true
+                if(hasSelection && nearHandle(e.x,e.y)) {
+                    resizing=true; resizeStartY=e.y; resizeStartScale=scale
+                } else if(!hasSelection) {
+                    startX=e.x.coerceIn(0f,width.toFloat()); startY=e.y.coerceIn(0f,height-135f)
+                    endX=startX; endY=startY; drawing=true
                 }
-                return true
+                invalidate(); return true
             }
             MotionEvent.ACTION_MOVE -> {
-                if (sliderActive) updateScale(event.x, sliderLeft, sliderRight)
-                else if (!hasSelection) {
-                    curX = event.rawX
-                    curY = event.rawY
-                    invalidate()
+                if(resizing) {
+                    // Movimento vertical: puxar para cima aumenta; para baixo reduz.
+                    val delta=(resizeStartY-e.y)/maxDimension()
+                    scale=(resizeStartScale+delta*1.25f).coerceIn(0.55f,2.0f)
+                } else if(drawing) {
+                    endX=e.x.coerceIn(0f,width.toFloat()); endY=e.y.coerceIn(0f,height-135f)
                 }
-                return true
+                invalidate(); return true
             }
             MotionEvent.ACTION_UP -> {
-                if (sliderActive) {
-                    sliderActive = false
-                    return true
-                }
-                if (event.y > height - 160f) {
-                    when {
-                        cancel.contains(event.x, event.y) -> onDone(null)
-                        resize.contains(event.x, event.y) && hasSelection -> {
-                            scale = if (scale < 1.74f) (scale + 0.15f).coerceAtMost(1.75f) else 0.65f
-                            invalidate()
-                        }
-                        confirm.contains(event.x, event.y) && hasSelection -> {
-                            val r = currentRect()
-                            onDone(if (r.width() > 24 && r.height() > 24) r else null)
-                        }
+                if(resizing) { resizing=false; invalidate(); return true }
+                if(e.y>=height-125f) {
+                    if(cancel.contains(e.x,e.y)) onDone(null)
+                    else if(confirm.contains(e.x,e.y) && hasSelection) {
+                        val r=currentRect()
+                        onDone(if(r.width()>24f && r.height()>24f) r else null)
                     }
                     return true
                 }
-                curX = event.rawX
-                curY = event.rawY
-                dragging = false
-                hasSelection = kotlin.math.abs(curX - startX) > 30 && kotlin.math.abs(curY - startY) > 30
-                scale = 1f
-                invalidate()
+                if(drawing) {
+                    endX=e.x.coerceIn(0f,width.toFloat()); endY=e.y.coerceIn(0f,height-135f)
+                    drawing=false
+                    hasSelection=abs(endX-startX)>28f && abs(endY-startY)>28f
+                    scale=1f
+                    invalidate()
+                }
                 return true
             }
-            MotionEvent.ACTION_CANCEL -> {
-                sliderActive = false
-                dragging = false
-                return true
-            }
+            MotionEvent.ACTION_CANCEL -> { drawing=false; resizing=false; invalidate(); return true }
         }
         return true
     }
 
-    private fun updateScale(x: Float, left: Float, right: Float) {
-        val ratio = ((x - left) / (right - left)).coerceIn(0f, 1f)
-        scale = 0.65f + ratio * 1.10f
-        invalidate()
+    private fun nearHandle(x:Float,y:Float):Boolean {
+        val r=currentRect(); val dx=x-r.right; val dy=y-r.bottom
+        return dx*dx+dy*dy <= 58f*58f
     }
 
-    private fun currentRect(): RectF {
-        val cx = (startX + curX) / 2f
-        val cy = (startY + curY) / 2f
-        val halfW = kotlin.math.abs(curX - startX) * scale / 2f
-        val halfH = kotlin.math.abs(curY - startY) * scale / 2f
-        return RectF(cx - halfW, cy - halfH, cx + halfW, cy + halfH)
+    private fun maxDimension():Float = height.toFloat().coerceAtLeast(1f)
+
+    private fun currentRect():RectF {
+        val cx=(startX+endX)/2f; val cy=(startY+endY)/2f
+        val halfW=abs(endX-startX)*scale/2f; val halfH=abs(endY-startY)*scale/2f
+        val l=(cx-halfW).coerceAtLeast(0f); val t=(cy-halfH).coerceAtLeast(0f)
+        val r=(cx+halfW).coerceAtMost(width.toFloat()); val b=(cy+halfH).coerceAtMost((height-125f).coerceAtLeast(1f))
+        return RectF(l,t,r,b)
     }
 }

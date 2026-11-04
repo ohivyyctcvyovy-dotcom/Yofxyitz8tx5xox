@@ -202,90 +202,89 @@ class ScreenReaderService : Service() {
         }
     }
 
-    // Botão compacto: fica como um pequeno ícone e só abre as ações quando tocado.
+    // Botão principal compacto; as ferramentas aparecem em botões separados.
+    private var floatingMenu: View? = null
+
     private fun showFloatingButton() {
         if (floatingButton != null || !Settings.canDrawOverlays(this)) return
-        floatingExpanded = false
-        val button = TextView(this).apply {
-            text = "♛"
-            textSize = 20f
-            setTextColor(android.graphics.Color.rgb(255, 205, 90))
-            typeface = Typeface.DEFAULT_BOLD
-            gravity = Gravity.CENTER
-            setPadding(0, 0, 0, 0)
-            background = GradientDrawable().apply {
-                setColor(android.graphics.Color.rgb(15, 15, 15))
-                cornerRadius = 100f
-                setStroke(2, android.graphics.Color.rgb(255, 205, 90))
-            }
-            elevation = 12f
-            contentDescription = "Aurora 455. Toque para abrir as ferramentas ou arraste para mover."
-        }
+        val gold = android.graphics.Color.rgb(255, 205, 90)
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
         val params = WindowManager.LayoutParams(54, 54, type,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT).apply { gravity = Gravity.TOP or Gravity.START; x = 12; y = 260 }
-        var downX = 0f; var downY = 0f; var startX = 0; var startY = 0
+        val button = TextView(this).apply {
+            text = "♛"; textSize = 21f; setTextColor(gold); typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply { setColor(android.graphics.Color.rgb(15,15,15)); cornerRadius=100f; setStroke(2,gold) }
+            elevation = 12f
+            contentDescription = "Aurora 455. Toque para abrir as ferramentas ou arraste para mover."
+        }
+        var downX=0f; var downY=0f; var startX=0; var startY=0
         button.setOnTouchListener { view, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downX = event.rawX; downY = event.rawY
-                    startX = params.x; startY = params.y
-                    true
-                }
+            when(event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downX=event.rawX; downY=event.rawY; startX=params.x; startY=params.y; true }
                 MotionEvent.ACTION_MOVE -> {
-                    val dx = (event.rawX - downX).toInt()
-                    val dy = (event.rawY - downY).toInt()
-                    if (kotlin.math.abs(dx) > 5 || kotlin.math.abs(dy) > 5) {
-                        params.x = startX + dx; params.y = startY + dy
-                        try { wm.updateViewLayout(view, params) } catch (_: Exception) {}
-                    }
-                    true
+                    val dx=(event.rawX-downX).toInt(); val dy=(event.rawY-downY).toInt()
+                    if(kotlin.math.abs(dx)>5 || kotlin.math.abs(dy)>5) {
+                        params.x=startX+dx; params.y=startY+dy
+                        try { wm.updateViewLayout(view,params) } catch(_:Exception) {}
+                    }; true
                 }
                 MotionEvent.ACTION_UP -> {
-                    val moved = kotlin.math.abs(event.rawX - downX) > 8 || kotlin.math.abs(event.rawY - downY) > 8
-                    if (!moved) {
-                        if (!floatingExpanded) {
-                            floatingExpanded = true
-                            button.text = "TELA\nTEXTO\nVISÃO\n×"
-                            button.textSize = 12f
-                            button.setTextColor(android.graphics.Color.WHITE)
-                            button.setPadding(10, 8, 10, 8)
-                            params.width = 86; params.height = 190
-                            button.contentDescription = "TELA lê a tela. TEXTO seleciona uma área para reconhecer e traduzir. VISÃO identifica elementos. X encerra."
-                            try { wm.updateViewLayout(view, params) } catch (_: Exception) {}
-                        } else {
-                            val fraction = event.y / view.height.toFloat().coerceAtLeast(1f)
-                            when {
-                                fraction < 0.27f -> { floatingExpanded = false; button.text = "♛"; button.textSize = 20f; button.setTextColor(android.graphics.Color.rgb(255,205,90)); button.setPadding(0,0,0,0); params.width=54; params.height=54; wm.updateViewLayout(view,params); readWholeScreen() }
-                                fraction < 0.52f -> { floatingExpanded = false; collapseFloatingButton(button, params); selectionModeVision = false; showSelection() }
-                                fraction < 0.77f -> { floatingExpanded = false; collapseFloatingButton(button, params); selectionModeVision = true; showSelection() }
-                                else -> stopSelf()
-                            }
-                        }
-                    }
-                    true
+                    val moved=kotlin.math.abs(event.rawX-downX)>8 || kotlin.math.abs(event.rawY-downY)>8
+                    if(!moved) {
+                        if(floatingMenu==null) showFloatingMenu(params) else removeFloatingMenu()
+                    }; true
                 }
                 else -> true
             }
         }
-        try { wm.addView(button, params); floatingButton = button }
-        catch (e: Exception) { Log.e(TAG, "Não foi possível mostrar o botão flutuante", e) }
+        try { wm.addView(button,params); floatingButton=button }
+        catch(e:Exception) { Log.e(TAG,"Não foi possível mostrar o botão flutuante",e) }
     }
 
-    private fun collapseFloatingButton(button: TextView, params: WindowManager.LayoutParams) {
-        button.text = "♛"
-        button.textSize = 20f
-        button.setTextColor(android.graphics.Color.rgb(255, 205, 90))
-        button.setPadding(0, 0, 0, 0)
-        params.width = 54; params.height = 54
-        try { wm.updateViewLayout(button, params) } catch (_: Exception) {}
+    private fun showFloatingMenu(anchor: WindowManager.LayoutParams) {
+        if(floatingMenu!=null) return
+        val gold=android.graphics.Color.rgb(255,205,90)
+        val menu=LinearLayout(this).apply {
+            orientation=LinearLayout.VERTICAL; setPadding(6,6,6,6)
+            background=GradientDrawable().apply { setColor(android.graphics.Color.rgb(17,17,17)); cornerRadius=18f; setStroke(2,gold) }
+            elevation=14f
+        }
+        fun action(label:String, description:String, onClick:()->Unit) {
+            val item=TextView(this).apply {
+                text=label; textSize=14f; gravity=Gravity.CENTER; setTextColor(android.graphics.Color.WHITE)
+                contentDescription=description
+                setPadding(16,12,16,12)
+                background=GradientDrawable().apply { setColor(android.graphics.Color.rgb(32,32,32)); cornerRadius=12f }
+                setOnClickListener { removeFloatingMenu(); onClick() }
+            }
+            menu.addView(item,LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,48))
+            val gap=View(this); menu.addView(gap,LinearLayout.LayoutParams(1,4))
+        }
+        action("TELA","Ler e traduzir a tela inteira") { readWholeScreen() }
+        action("TEXTO","Marcar uma área para ler e traduzir") { selectionModeVision=false; showSelection() }
+        action("VISÃO","Identificar elementos e texto em uma área") { selectionModeVision=true; showSelection() }
+        action("ENCERRAR","Fechar o leitor Aurora 455") { stopSelf() }
+        val type=if(Build.VERSION.SDK_INT>=Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+        val p=WindowManager.LayoutParams(148,ViewGroup.LayoutParams.WRAP_CONTENT,type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT).apply { gravity=Gravity.TOP or Gravity.START; x=anchor.x; y=anchor.y+60 }
+        try { wm.addView(menu,p); floatingMenu=menu }
+        catch(e:Exception) { Log.e(TAG,"Falha ao abrir menu flutuante",e) }
+    }
+
+    private fun removeFloatingMenu() {
+        floatingMenu?.let { try { wm.removeView(it) } catch(_:Exception) {} }
+        floatingMenu=null
     }
 
     private fun removeFloatingButton() {
-        floatingButton?.let { try { wm.removeView(it) } catch (_: Exception) {} }
-        floatingButton = null
+        removeFloatingMenu()
+        floatingButton?.let { try { wm.removeView(it) } catch(_:Exception) {} }
+        floatingButton=null
     }
 
     private fun showSelection() {

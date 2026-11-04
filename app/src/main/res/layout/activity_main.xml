@@ -10,6 +10,7 @@
 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="28dp" android:text="IDIOMA DO TEXTO" android:textColor="#FFCD5A" android:textStyle="bold" android:textSize="13sp"/>
 <RadioGroup android:id="@+id/rgLang" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:background="#191919" android:padding="16dp">
 <RadioButton android:id="@+id/rbJa" android:layout_width="match_parent" android:layout_height="wrap_content" android:checked="true" android:buttonTint="#FFCD5A" android:text="Japonês → Português" android:textColor="#FFFFFF" android:padding="8dp"/>
+<RadioButton android:id="@+id/rbZh" android:layout_width="match_parent" android:layout_height="wrap_content" android:buttonTint="#FFCD5A" android:text="Chinês / Hanzi (汉字) → Português" android:textColor="#FFFFFF" android:padding="8dp"/>
 <RadioButton android:id="@+id/rbKo" android:layout_width="match_parent" android:layout_height="wrap_content" android:buttonTint="#FFCD5A" android:text="Coreano → Português" android:textColor="#FFFFFF" android:padding="8dp"/>
 <RadioButton android:id="@+id/rbEn" android:layout_width="match_parent" android:layout_height="wrap_content" android:buttonTint="#FFCD5A" android:text="Inglês → Português" android:textColor="#FFFFFF" android:padding="8dp"/>
 </RadioGroup>

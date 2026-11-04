@@ -10,6 +10,11 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Rect
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
@@ -361,6 +366,38 @@ class ScreenReaderService : Service() {
         return known[label] ?: label.replace('_', ' ').lowercase(Locale("pt", "BR"))
     }
 
+    // Amplia textos pequenos e aplica contraste moderado antes do OCR.
+    // Mantém as cores para não apagar caracteres coloridos de interfaces e jogos.
+    private fun prepareBitmapForOcr(source: Bitmap): Bitmap {
+        val maxDimension = 2600f
+        val scale = minOf(2.0f, maxDimension / maxOf(source.width, source.height).toFloat())
+            .coerceAtLeast(1.0f)
+        val outWidth = (source.width * scale).toInt().coerceAtLeast(1)
+        val outHeight = (source.height * scale).toInt().coerceAtLeast(1)
+        val enhanced = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
+        val contrast = 1.22f
+        val offset = 128f * (1f - contrast)
+        val matrix = ColorMatrix(floatArrayOf(
+            contrast, 0f, 0f, 0f, offset,
+            0f, contrast, 0f, 0f, offset,
+            0f, 0f, contrast, 0f, offset,
+            0f, 0f, 0f, 1f, 0f
+        ))
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = ColorMatrixColorFilter(matrix)
+        }
+        Canvas(enhanced).drawBitmap(
+            source,
+            Rect(0, 0, source.width, source.height),
+            Rect(0, 0, outWidth, outHeight),
+            paint
+        )
+        return enhanced
+    }
+
+    // Faz duas tentativas: imagem original e versão ampliada/realçada.
+    // Escolhe o resultado com mais caracteres úteis, evitando substituir
+    // automaticamente um texto legível por uma tentativa claramente pior.
     private fun readText(bitmap: Bitmap) {
         val recognizer = when (sourceLang) {
             TranslateLanguage.JAPANESE -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
@@ -368,16 +405,40 @@ class ScreenReaderService : Service() {
             TranslateLanguage.KOREAN -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
             else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         }
-        recognizer.process(InputImage.fromBitmap(bitmap, 0))
-            .addOnSuccessListener { result ->
+        val enhanced = prepareBitmapForOcr(bitmap)
+        val candidates = listOf(bitmap, enhanced)
+
+        fun qualityScore(text: String): Int {
+            val useful = text.count { it.isLetterOrDigit() }
+            val lines = text.count { it == '\n' }
+            val replacements = text.count { it == '\uFFFD' }
+            val controls = text.count { it.isISOControl() && it != '\n' && it != '\r' && it != '\t' }
+            return useful * 3 + lines * 2 - replacements * 20 - controls * 10
+        }
+
+        fun runPass(index: Int, bestText: String, bestScore: Int) {
+            if (index >= candidates.size) {
                 recognizer.close()
-                val text = result.text.trim()
-                Log.d(TAG, "OCR: $text")
-                if (text.isEmpty()) say("Não encontrei texto na área selecionada.") else translate(text)
+                enhanced.recycle()
+                val finalText = bestText.trim()
+                Log.d(TAG, "OCR selecionado: $finalText")
+                if (finalText.isEmpty()) say("Não encontrei texto legível. Tente selecionar uma área maior ou mais nítida.")
+                else translate(finalText)
+                return
             }
-            .addOnFailureListener { e ->
-                recognizer.close(); Log.e(TAG, "Erro no OCR", e); say("Erro ao reconhecer o texto.")
-            }
+            recognizer.process(InputImage.fromBitmap(candidates[index], 0))
+                .addOnSuccessListener { result ->
+                    val found = result.text.trim()
+                    val score = qualityScore(found)
+                    if (score > bestScore) runPass(index + 1, found, score)
+                    else runPass(index + 1, bestText, bestScore)
+                }
+                .addOnFailureListener { error ->
+                    Log.w(TAG, "Tentativa OCR ${index + 1} falhou", error)
+                    runPass(index + 1, bestText, bestScore)
+                }
+        }
+        runPass(0, "", Int.MIN_VALUE)
     }
 
     private fun translate(text: String) {

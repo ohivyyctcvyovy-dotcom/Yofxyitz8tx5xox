@@ -20,6 +20,7 @@ class SelectionView(
     private var curX = 0f
     private var curY = 0f
     private var hasSelection = false
+    private var dragging = false
     private var scale = 1f
     private var sliderActive = false
 
@@ -58,7 +59,7 @@ class SelectionView(
         canvas.drawText("Marque a área do texto", 28f, 82f, text)
         canvas.drawText("Arraste o dedo para criar a seleção", 28f, 126f, small)
 
-        if (hasSelection) {
+        if (hasSelection || dragging) {
             val r = currentRect()
             canvas.drawRoundRect(r, 12f, 12f, fill)
             canvas.drawRoundRect(r, 12f, 12f, stroke)
@@ -109,6 +110,7 @@ class SelectionView(
                     curX = startX
                     curY = startY
                     hasSelection = false
+                    dragging = true
                     invalidate()
                 }
                 return true
@@ -143,6 +145,7 @@ class SelectionView(
                 }
                 curX = event.rawX
                 curY = event.rawY
+                dragging = false
                 hasSelection = kotlin.math.abs(curX - startX) > 30 && kotlin.math.abs(curY - startY) > 30
                 scale = 1f
                 invalidate()
@@ -150,6 +153,7 @@ class SelectionView(
             }
             MotionEvent.ACTION_CANCEL -> {
                 sliderActive = false
+                dragging = false
                 return true
             }
         }

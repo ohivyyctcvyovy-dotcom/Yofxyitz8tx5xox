@@ -5,14 +5,13 @@ plugins {
 
 android {
     namespace = "com.example.telaleitor"
-    buildFeatures { aidl = true }
     compileSdk = 34
     defaultConfig {
         applicationId = "com.example.telaleitor"
         minSdk = 24
         targetSdk = 34
-        versionCode = 17
-        versionName = "1.16"
+        versionCode = 18
+        versionName = "1.17"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -30,6 +29,7 @@ dependencies {
     implementation("com.google.mlkit:text-recognition-korean:16.0.1")
     implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
     implementation("com.google.mlkit:language-id:17.0.6")
-    // Modelo de classificação de imagens empacotado no APK (processamento local).
     implementation("com.google.mlkit:image-labeling:17.0.9")
+    // Tradução neural local: baixa os modelos no primeiro uso e depois funciona offline.
+    implementation("com.google.mlkit:translate:17.0.3")
 }

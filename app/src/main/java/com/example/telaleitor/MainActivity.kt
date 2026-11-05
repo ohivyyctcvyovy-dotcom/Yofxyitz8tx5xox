@@ -43,6 +43,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         findViewById<Button>(R.id.btnStart).setOnClickListener { startReading() }
+        findViewById<Button>(R.id.btnStop).setOnClickListener {
+            val stopIntent = Intent(this, ScreenReaderService::class.java).apply {
+                action = ScreenReaderService.ACTION_STOP
+            }
+            ContextCompat.startForegroundService(this, stopIntent)
+            Toast.makeText(this, "Leitor encerrado. O botão flutuante foi removido.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun selectedLanguage(): String =

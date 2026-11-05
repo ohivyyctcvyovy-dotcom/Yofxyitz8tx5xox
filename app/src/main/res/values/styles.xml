@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Aurora" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="colorPrimary">#FF334F</item>
+        <item name="colorPrimaryDark">#080808</item>
+        <item name="colorAccent">#FF334F</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowBackground">#080808</item>
+        <item name="android:statusBarColor">#080808</item>
+        <item name="android:navigationBarColor">#080808</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>

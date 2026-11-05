@@ -593,26 +593,20 @@ class ScreenReaderService : Service() {
         return Bitmap.createBitmap(bmp, left, top, right - left, bottom - top)
     }
 
-    // Análise visual local combinando rótulos de objetos e leitura do texto visível.
-    // Isto identifica elementos e palavras, mas não inventa uma narrativa que o modelo não detectou.
+    // Análise visual local combinando rótulos de objetos e OCR no idioma correto.
+    // No modo automático, testa os reconhecedores japonês, chinês, coreano e latino.
     private fun analyzeVisual(bitmap: Bitmap) {
         say("Analisando a região selecionada.")
         val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
-        val recognizer = when (sourceLang) {
-            LANG_JAPANESE -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
-            LANG_CHINESE -> TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
-            LANG_KOREAN -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
-            else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-        }
         var labelsDone = false
         var textDone = false
         var labelNames = emptyList<String>()
         var visibleText = ""
-        var failed = false
+
         fun finishIfReady() {
             if (!labelsDone || !textDone) return
             labeler.close()
-            recognizer.close()
+            if (!bitmap.isRecycled) bitmap.recycle()
             val parts = mutableListOf<String>()
             if (labelNames.isNotEmpty()) parts.add("Elementos que consegui identificar: ${labelNames.joinToString(", ")}.")
             if (visibleText.isNotBlank()) parts.add("Texto visível na imagem: ${visibleText.take(900)}.")
@@ -624,6 +618,7 @@ class ScreenReaderService : Service() {
                 showResultPanel("ANÁLISE VISUAL\nElementos: ${labelNames.joinToString(", ").ifBlank { "não identificados" }}\n\nTexto detectado:\n${visibleText.ifBlank { "nenhum texto legível" }}", description, "ANÁLISE DA IMAGEM", "DESCRIÇÃO DOS ELEMENTOS")
             }
         }
+
         labeler.process(InputImage.fromBitmap(bitmap, 0))
             .addOnSuccessListener { labels ->
                 labelNames = labels.filter { it.confidence >= 0.30f }
@@ -637,17 +632,63 @@ class ScreenReaderService : Service() {
                 labelsDone = true
                 finishIfReady()
             }
-        recognizer.process(InputImage.fromBitmap(bitmap, 0))
-            .addOnSuccessListener { result ->
-                visibleText = result.textBlocks.joinToString("\n") { it.text.trim() }.trim()
-                textDone = true
-                finishIfReady()
+
+        fun completeText(value: String) {
+            visibleText = value
+            textDone = true
+            finishIfReady()
+        }
+
+        fun scriptScore(value: String): Int {
+            var score = 0
+            for (ch in value) {
+                val cp = ch.code
+                when {
+                    cp in 0x3040..0x30FF || cp in 0x31F0..0x31FF -> score += 12
+                    cp in 0x1100..0x11FF || cp in 0x3130..0x318F || cp in 0xAC00..0xD7AF -> score += 12
+                    cp in 0x3400..0x4DBF || cp in 0x4E00..0x9FFF -> score += 5
+                    ch in 'A'..'Z' || ch in 'a'..'z' -> score += 2
+                    ch.isDigit() -> score += 1
+                }
             }
-            .addOnFailureListener { error ->
-                Log.w(TAG, "Falha ao ler texto na análise visual", error)
-                textDone = true
-                finishIfReady()
+            return score
+        }
+
+        if (autoDetectEnabled) {
+            val languages = listOf(LANG_JAPANESE, LANG_CHINESE, LANG_KOREAN, LANG_ENGLISH)
+            val outputs = mutableListOf<String>()
+            fun probe(index: Int) {
+                if (index >= languages.size) {
+                    completeText(outputs.maxByOrNull { scriptScore(it) }.orEmpty().trim())
+                    return
+                }
+                val recognizer = createTextRecognizer(languages[index])
+                recognizer.process(InputImage.fromBitmap(bitmap, 0))
+                    .addOnSuccessListener { result ->
+                        outputs.add(result.textBlocks.joinToString("\n") { it.text.trim() }.trim())
+                        recognizer.close()
+                        probe(index + 1)
+                    }
+                    .addOnFailureListener { error ->
+                        Log.w(TAG, "OCR visual automático (${languages[index]}) falhou", error)
+                        recognizer.close()
+                        probe(index + 1)
+                    }
             }
+            probe(0)
+        } else {
+            val recognizer = createTextRecognizer(sourceLang)
+            recognizer.process(InputImage.fromBitmap(bitmap, 0))
+                .addOnSuccessListener { result ->
+                    completeText(result.textBlocks.joinToString("\n") { it.text.trim() }.trim())
+                    recognizer.close()
+                }
+                .addOnFailureListener { error ->
+                    Log.w(TAG, "Falha ao ler texto na análise visual", error)
+                    recognizer.close()
+                    completeText("")
+                }
+        }
     }
 
     private fun translateVisualLabel(label: String): String {

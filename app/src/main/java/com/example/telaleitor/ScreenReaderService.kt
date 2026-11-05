@@ -873,7 +873,7 @@ class ScreenReaderService : Service() {
             if (!ttsReady || engine == null) { toast(message); return@post }
 
             val spoken = message
-                .replace("\\r\\n", "\\n")
+                .replace("\r\n", "\n")
                 .replace(Regex("(?m)^\\\\s*[-–—]+\\\\s*$"), " ")
                 .replace(Regex("(?<![\\\\p{L}\\\\p{N}])[-–—](?![\\\\p{L}\\\\p{N}])"), " ")
                 .replace(Regex("[–—]"), ", ")

@@ -69,6 +69,8 @@ class ScreenReaderService : Service() {
         const val LANG_CHINESE = "zh"
         const val LANG_KOREAN = "ko"
         const val LANG_ENGLISH = "en"
+        const val LANG_PORTUGUESE = "pt"
+        private const val LANG_UNSUPPORTED = "unsupported"
         private const val CHANNEL_ID = "leitor_tela"
         private const val NOTIF_ID = 1
         private const val TAG = "ScreenReader"
@@ -723,19 +725,24 @@ class ScreenReaderService : Service() {
             .addOnSuccessListener { languageTag ->
                 identifier.close()
                 val translatedCode = languageTag.substringBefore('-').lowercase(Locale.ROOT)
-                val supported = setOf(LANG_JAPANESE, LANG_CHINESE, LANG_KOREAN, LANG_ENGLISH)
+                val supported = setOf(
+                    LANG_JAPANESE, LANG_CHINESE, LANG_KOREAN,
+                    LANG_ENGLISH, LANG_PORTUGUESE
+                )
+                // Nunca presume inglês quando o identificador retorna outro idioma
+                // (por exemplo, espanhol ou francês): isso gerava traduções erradas.
                 val detected = when {
                     translatedCode in supported -> translatedCode
-                    han > 0 -> LANG_CHINESE
-                    else -> LANG_ENGLISH
+                    han > 0 && translatedCode in setOf("und", "zh", "zh-tw", "zh-hant") -> LANG_CHINESE
+                    else -> LANG_UNSUPPORTED
                 }
                 Log.d(TAG, "Idioma identificado: tag=$languageTag, destino=$detected")
                 callback(detected)
             }
             .addOnFailureListener { error ->
                 identifier.close()
-                Log.w(TAG, "Identificação de idioma falhou; usando fallback", error)
-                callback(if (han > 0) LANG_CHINESE else LANG_ENGLISH)
+                Log.w(TAG, "Identificação de idioma falhou; não vou presumir inglês", error)
+                callback(if (han > 0) LANG_CHINESE else LANG_UNSUPPORTED)
             }
     }
 
@@ -941,9 +948,13 @@ class ScreenReaderService : Service() {
         return out.filter { it.isNotBlank() }
     }
 
-    // A tradução é executada pelo modelo ML Kit dentro do próprio Aurora.
-    // Na primeira utilização, o modelo é baixado; depois a tradução funciona offline.
+    // A tradução é executada pelo motor SLIMT nativo. Os modelos são baixados
+    // uma vez e ficam no armazenamento privado para uso offline.
     private fun translate(text: String) {
+        if (sourceLang == LANG_UNSUPPORTED) {
+            say("Não consegui identificar um idioma compatível. No momento, a tradução offline aceita inglês, japonês, coreano e chinês. Para outros idiomas, selecione um idioma compatível ou aguarde suporte a novos modelos.")
+            return
+        }
         val from = sourceLang.takeIf { it != LANG_AUTO }
         OfflineTranslationClient(this).translate(
             text = text,

@@ -283,7 +283,7 @@ class ScreenReaderService : Service() {
 
     private fun showFloatingButton() {
         if (floatingButton != null || !Settings.canDrawOverlays(this)) return
-        val gold = android.graphics.Color.rgb(255, 205, 90)
+        val gold = android.graphics.Color.rgb(255, 51, 79)
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
         val params = WindowManager.LayoutParams(54, 54, type,
@@ -294,7 +294,7 @@ class ScreenReaderService : Service() {
                 y = savedButtonY.coerceIn(0, (resources.displayMetrics.heightPixels - 54).coerceAtLeast(0))
             }
         val button = TextView(this).apply {
-            text = "♛"; textSize = 21f; setTextColor(gold); typeface = Typeface.DEFAULT_BOLD
+            text = "♛"; textSize = 21f; setTextColor(gold); typeface = Typeface.create("sans-serif", Typeface.BOLD)
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 setColor(android.graphics.Color.rgb(15, 15, 15))
@@ -368,7 +368,7 @@ class ScreenReaderService : Service() {
 
     private fun showFloatingMenu(anchor: WindowManager.LayoutParams) {
         if (floatingMenu != null) return
-        val gold = android.graphics.Color.rgb(255, 205, 90)
+        val gold = android.graphics.Color.rgb(255, 51, 79)
         val menu = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(7, 7, 7, 7)
@@ -618,14 +618,18 @@ class ScreenReaderService : Service() {
         return known[label] ?: label.replace('_', ' ').lowercase(Locale("pt", "BR"))
     }
 
-    // Gera uma versão ampliada em tons de cinza para comparar com a original e a colorida.
-    private fun prepareBitmapForOcr(source: Bitmap, grayscale: Boolean = false): Bitmap {
-        val maxDimension = 2600f
-        val scale = minOf(2.0f, maxDimension / maxOf(source.width, source.height).toFloat()).coerceAtLeast(1.0f)
+    // Cria variações de escala e contraste para ajudar o OCR em textos pequenos,
+    // fundos coloridos e capturas com pouco contraste.
+    private fun prepareBitmapForOcr(
+        source: Bitmap,
+        grayscale: Boolean = false,
+        contrast: Float = if (grayscale) 1.32f else 1.22f
+    ): Bitmap {
+        val maxDimension = 2800f
+        val scale = minOf(2.2f, maxDimension / maxOf(source.width, source.height).toFloat()).coerceAtLeast(1.0f)
         val w = (source.width * scale).toInt().coerceAtLeast(1)
         val h = (source.height * scale).toInt().coerceAtLeast(1)
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val contrast = if (grayscale) 1.32f else 1.22f
         val offset = 128f * (1f - contrast)
         val matrix = ColorMatrix(floatArrayOf(
             contrast, 0f, 0f, 0f, offset, 0f, contrast, 0f, 0f, offset,
@@ -646,34 +650,66 @@ class ScreenReaderService : Service() {
             TranslateLanguage.KOREAN -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
             else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         }
-        val enhanced = prepareBitmapForOcr(bitmap, false)
-        val grayscale = prepareBitmapForOcr(bitmap, true)
-        val candidates = listOf(bitmap, enhanced, grayscale)
+
+        // O mesmo texto é testado em quatro condições; o resultado é pontuado
+        // dando prioridade aos caracteres esperados para o idioma escolhido.
+        val enhanced = prepareBitmapForOcr(bitmap, false, 1.30f)
+        val grayscale = prepareBitmapForOcr(bitmap, true, 1.42f)
+        val highContrast = prepareBitmapForOcr(bitmap, true, 1.62f)
+        val candidates = listOf(bitmap, enhanced, grayscale, highContrast)
 
         fun score(text: String): Int {
             if (text.isBlank()) return Int.MIN_VALUE
-            val useful = text.count { it.isLetterOrDigit() }
-            val lines = text.count { it == '\n' }
+            var expectedScript = 0
+            var letters = 0
+            var digits = 0
+            var noisySymbols = 0
+            for (ch in text) {
+                if (ch.isLetter()) letters++
+                if (ch.isDigit()) digits++
+                val cp = ch.code
+                val isHan = cp in 0x3400..0x4DBF || cp in 0x4E00..0x9FFF
+                val isKana = cp in 0x3040..0x30FF || cp in 0x31F0..0x31FF
+                val isHangul = cp in 0x1100..0x11FF || cp in 0x3130..0x318F || cp in 0xAC00..0xD7AF
+                val isLatin = cp in 0x0041..0x024F
+                val expected = when (sourceLang) {
+                    TranslateLanguage.JAPANESE -> isHan || isKana
+                    TranslateLanguage.CHINESE -> isHan
+                    TranslateLanguage.KOREAN -> isHangul || isHan
+                    else -> isLatin
+                }
+                if (expected) expectedScript++
+                if (!ch.isLetterOrDigit() && !ch.isWhitespace() &&
+                    ch !in ".,!?;:，。！？、；：()（）「」『』【】-—…'\"") noisySymbols++
+            }
+            val lineBreaks = text.count { it == '\n' }
             val replacements = text.count { it == '\uFFFD' }
             val controls = text.count { it.isISOControl() && it != '\n' && it != '\r' && it != '\t' }
             val repeated = Regex("(.)\\1{4,}").findAll(text).count()
-            return useful * 4 + lines * 3 - replacements * 25 - controls * 15 - repeated * 8
+            return letters * 2 + digits + expectedScript * 5 + lineBreaks * 2 -
+                noisySymbols * 3 - replacements * 25 - controls * 15 - repeated * 8
         }
+
         fun finish(bestText: String) {
             recognizer.close()
             enhanced.recycle()
             grayscale.recycle()
+            highContrast.recycle()
             val finalText = bestText.trim()
-            Log.d(TAG, "OCR selecionado: $finalText")
+            Log.d(TAG, "OCR selecionado (${sourceLang}): $finalText")
             if (finalText.isEmpty()) say("Não encontrei texto legível. Tente selecionar uma área maior ou mais nítida.")
             else translate(finalText)
         }
+
         fun runPass(index: Int, bestText: String, bestScore: Int) {
             if (index >= candidates.size) { finish(bestText); return }
             recognizer.process(InputImage.fromBitmap(candidates[index], 0))
                 .addOnSuccessListener { result ->
-                    val found = result.textBlocks.joinToString("\n\n") { it.text.trim() }.trim()
+                    val found = result.textBlocks.joinToString("\n\n") { block ->
+                        block.lines.joinToString("\n") { line -> line.text.trim() }
+                    }.trim()
                     val value = score(found)
+                    Log.d(TAG, "OCR variante ${index + 1}: score=$value, chars=${found.length}")
                     if (value > bestScore) runPass(index + 1, found, value)
                     else runPass(index + 1, bestText, bestScore)
                 }
@@ -792,7 +828,7 @@ class ScreenReaderService : Service() {
     private fun showResultPanel(source: String, translated: String, sourceTitle: String = "TEXTO RECONHECIDO (ORIGINAL)", translatedTitle: String = "TRADUÇÃO PARA PORTUGUÊS") {
         handler.post {
             removeResultPanel()
-            val gold = android.graphics.Color.rgb(255, 205, 90)
+            val gold = android.graphics.Color.rgb(255, 51, 79)
             val panel = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(20, 18, 20, 18)
@@ -806,7 +842,7 @@ class ScreenReaderService : Service() {
                 text = "AURORA 455  •  RESULTADO"
                 textSize = 16f
                 setTextColor(gold)
-                typeface = Typeface.DEFAULT_BOLD
+                typeface = Typeface.create("sans-serif", Typeface.BOLD)
             }
             panel.addView(heading)
             val scroll = ScrollView(this)
@@ -816,7 +852,7 @@ class ScreenReaderService : Service() {
                     text = label
                     textSize = 13f
                     setTextColor(gold)
-                    typeface = Typeface.DEFAULT_BOLD
+                    typeface = Typeface.create("sans-serif", Typeface.BOLD)
                     setPadding(0, 14, 0, 5)
                 })
                 body.addView(TextView(this).apply {

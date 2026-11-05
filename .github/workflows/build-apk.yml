@@ -26,14 +26,18 @@ jobs:
           targets: aarch64-linux-android,armv7-linux-androideabi
       - name: Instalar cargo-ndk
         run: cargo install cargo-ndk --locked
-      - name: Instalar Android NDK 28
-        run: yes | sdkmanager --licenses && sdkmanager --install "ndk;28.0.13004108"
+      - name: Configurar Android SDK e instalar NDK 28
+        run: |
+          SDK_ROOT=/usr/local/lib/android/sdk
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
+          yes | "$SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager" --licenses
+          "$SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager" --install "ndk;28.0.13004108"
       - name: Compilar motor SLIMT nativo
         working-directory: app/src/main/rust
-        env:
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.0.13004108
-          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/28.0.13004108
         run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.0.13004108"
+          export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
           cargo ndk -t arm64-v8a -t armeabi-v7a -o ../jniLibs build --release
       - name: Instalar Gradle
         uses: gradle/actions/setup-gradle@v4

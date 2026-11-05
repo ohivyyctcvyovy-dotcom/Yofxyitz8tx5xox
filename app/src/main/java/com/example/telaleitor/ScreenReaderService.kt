@@ -44,6 +44,7 @@ import android.widget.ScrollView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.google.mlkit.common.model.DownloadConditions
+import com.google.mlkit.nl.languageid.LanguageIdentification
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
@@ -51,6 +52,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeling
 import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
 import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
@@ -66,6 +68,7 @@ class ScreenReaderService : Service() {
         const val EXTRA_RESULT_CODE = "resultCode"
         const val EXTRA_DATA = "data"
         const val EXTRA_LANG = "lang"
+        const val LANG_AUTO = "auto"
         private const val CHANNEL_ID = "leitor_tela"
         private const val NOTIF_ID = 1
         private const val TAG = "ScreenReader"
@@ -80,7 +83,7 @@ class ScreenReaderService : Service() {
     private var floatingButton: TextView? = null
     private var floatingExpanded = false
     private var resultPanel: View? = null
-    private var sourceLang: String = TranslateLanguage.JAPANESE
+    private var sourceLang: String = LANG_AUTO
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var screenW = 0
@@ -133,7 +136,7 @@ class ScreenReaderService : Service() {
         when (intent?.action) {
             ACTION_START -> {
                 startAsForeground()
-                sourceLang = intent.getStringExtra(EXTRA_LANG) ?: TranslateLanguage.JAPANESE
+                sourceLang = intent.getStringExtra(EXTRA_LANG) ?: LANG_AUTO
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
                 val data = readDataExtra(intent)
                 if (data == null) {
@@ -643,16 +646,127 @@ class ScreenReaderService : Service() {
         return out
     }
 
-    private fun readText(bitmap: Bitmap) {
-        val recognizer = when (sourceLang) {
-            TranslateLanguage.JAPANESE -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
-            TranslateLanguage.CHINESE -> TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
-            TranslateLanguage.KOREAN -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
-            else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    private fun createTextRecognizer(language: String): TextRecognizer = when (language) {
+        TranslateLanguage.JAPANESE -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
+        TranslateLanguage.CHINESE -> TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+        TranslateLanguage.KOREAN -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
+        else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    }
+
+    // Identifica o idioma pelos caracteres e, quando necessário, pelo identificador
+    // de idioma do ML Kit. A análise acontece localmente no aparelho.
+    private fun identifySourceLanguage(text: String, callback: (String) -> Unit) {
+        var han = 0
+        var kana = 0
+        var hangul = 0
+        for (ch in text) {
+            val cp = ch.code
+            if (cp in 0x3400..0x4DBF || cp in 0x4E00..0x9FFF) han++
+            if (cp in 0x3040..0x30FF || cp in 0x31F0..0x31FF) kana++
+            if (cp in 0x1100..0x11FF || cp in 0x3130..0x318F || cp in 0xAC00..0xD7AF) hangul++
+        }
+        if (hangul > 0) {
+            callback(TranslateLanguage.KOREAN)
+            return
+        }
+        if (kana > 0) {
+            callback(TranslateLanguage.JAPANESE)
+            return
         }
 
-        // O mesmo texto é testado em quatro condições; o resultado é pontuado
-        // dando prioridade aos caracteres esperados para o idioma escolhido.
+        val identifier = LanguageIdentification.getClient()
+        identifier.identifyLanguage(text)
+            .addOnSuccessListener { languageTag ->
+                identifier.close()
+                val translatedCode = TranslateLanguage.fromLanguageTag(languageTag)
+                val supported = TranslateLanguage.getAllLanguages()
+                val detected = when {
+                    translatedCode != null && supported.contains(translatedCode) -> translatedCode
+                    han > 0 -> TranslateLanguage.CHINESE
+                    else -> TranslateLanguage.ENGLISH
+                }
+                Log.d(TAG, "Idioma identificado: tag=$languageTag, destino=$detected")
+                callback(detected)
+            }
+            .addOnFailureListener { error ->
+                identifier.close()
+                Log.w(TAG, "Identificação de idioma falhou; usando fallback", error)
+                callback(if (han > 0) TranslateLanguage.CHINESE else TranslateLanguage.ENGLISH)
+            }
+    }
+
+    // No modo automático, testa os quatro reconhecedores de escrita disponíveis
+    // e escolhe o texto que contém mais caracteres legíveis de um alfabeto real.
+    private fun readTextAutomatically(bitmap: Bitmap) {
+        val languages = listOf(
+            TranslateLanguage.JAPANESE,
+            TranslateLanguage.CHINESE,
+            TranslateLanguage.KOREAN,
+            TranslateLanguage.ENGLISH
+        )
+        val outputs = mutableListOf<Pair<String, String>>()
+
+        fun scriptScore(text: String): Int {
+            var score = 0
+            for (ch in text) {
+                val cp = ch.code
+                when {
+                    cp in 0x3040..0x30FF || cp in 0x31F0..0x31FF -> score += 12
+                    cp in 0x1100..0x11FF || cp in 0x3130..0x318F || cp in 0xAC00..0xD7AF -> score += 12
+                    cp in 0x3400..0x4DBF || cp in 0x4E00..0x9FFF -> score += 5
+                    ch in 'A'..'Z' || ch in 'a'..'z' -> score += 2
+                    ch.isDigit() -> score += 1
+                }
+            }
+            return score
+        }
+
+        fun probe(index: Int) {
+            if (index >= languages.size) {
+                val best = outputs.maxByOrNull { scriptScore(it.second) }?.second.orEmpty().trim()
+                if (best.isBlank()) {
+                    say("Não encontrei texto legível. Tente selecionar uma área maior ou mais nítida.")
+                    return
+                }
+                identifySourceLanguage(best) { detected ->
+                    sourceLang = detected
+                    Log.d(TAG, "Modo automático: idioma=$sourceLang; texto=$best")
+                    readTextWithLanguage(bitmap)
+                }
+                return
+            }
+
+            val language = languages[index]
+            val recognizer = createTextRecognizer(language)
+            recognizer.process(InputImage.fromBitmap(bitmap, 0))
+                .addOnSuccessListener { result ->
+                    val found = result.textBlocks.joinToString("\n\n") { block ->
+                        block.lines.joinToString("\n") { line -> line.text.trim() }
+                    }.trim()
+                    outputs.add(language to found)
+                    recognizer.close()
+                    probe(index + 1)
+                }
+                .addOnFailureListener { error ->
+                    Log.w(TAG, "Reconhecimento automático ($language) falhou", error)
+                    recognizer.close()
+                    probe(index + 1)
+                }
+        }
+        probe(0)
+    }
+
+    private fun readText(bitmap: Bitmap) {
+        if (sourceLang == LANG_AUTO) {
+            readTextAutomatically(bitmap)
+        } else {
+            readTextWithLanguage(bitmap)
+        }
+    }
+
+    private fun readTextWithLanguage(bitmap: Bitmap) {
+        val recognizer = createTextRecognizer(sourceLang)
+
         val enhanced = prepareBitmapForOcr(bitmap, false, 1.30f)
         val grayscale = prepareBitmapForOcr(bitmap, true, 1.42f)
         val highContrast = prepareBitmapForOcr(bitmap, true, 1.62f)
@@ -696,7 +810,7 @@ class ScreenReaderService : Service() {
             grayscale.recycle()
             highContrast.recycle()
             val finalText = bestText.trim()
-            Log.d(TAG, "OCR selecionado (${sourceLang}): $finalText")
+            Log.d(TAG, "OCR selecionado ($sourceLang): $finalText")
             if (finalText.isEmpty()) say("Não encontrei texto legível. Tente selecionar uma área maior ou mais nítida.")
             else translate(finalText)
         }
@@ -709,12 +823,12 @@ class ScreenReaderService : Service() {
                         block.lines.joinToString("\n") { line -> line.text.trim() }
                     }.trim()
                     val value = score(found)
-                    Log.d(TAG, "OCR variante ${index + 1}: score=$value, chars=${found.length}")
+                    Log.d(TAG, "OCR variante \${index + 1}: score=$value, chars=\${found.length}")
                     if (value > bestScore) runPass(index + 1, found, value)
                     else runPass(index + 1, bestText, bestScore)
                 }
                 .addOnFailureListener { error ->
-                    Log.w(TAG, "Tentativa OCR ${index + 1} falhou", error)
+                    Log.w(TAG, "Tentativa OCR \${index + 1} falhou", error)
                     runPass(index + 1, bestText, bestScore)
                 }
         }

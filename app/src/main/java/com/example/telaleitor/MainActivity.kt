@@ -51,6 +51,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun selectedLanguage(): String =
         when (findViewById<RadioGroup>(R.id.rgLang).checkedRadioButtonId) {
+            R.id.rbAuto -> ScreenReaderService.LANG_AUTO
             R.id.rbKo -> TranslateLanguage.KOREAN
             R.id.rbZh -> TranslateLanguage.CHINESE
             R.id.rbEn -> TranslateLanguage.ENGLISH

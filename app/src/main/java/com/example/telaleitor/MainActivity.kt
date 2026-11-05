@@ -13,7 +13,6 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import com.google.mlkit.nl.translate.TranslateLanguage
 
 class MainActivity : AppCompatActivity() {
 
@@ -52,10 +51,10 @@ class MainActivity : AppCompatActivity() {
     private fun selectedLanguage(): String =
         when (findViewById<RadioGroup>(R.id.rgLang).checkedRadioButtonId) {
             R.id.rbAuto -> ScreenReaderService.LANG_AUTO
-            R.id.rbKo -> TranslateLanguage.KOREAN
-            R.id.rbZh -> TranslateLanguage.CHINESE
-            R.id.rbEn -> TranslateLanguage.ENGLISH
-            else -> TranslateLanguage.JAPANESE
+            R.id.rbKo -> ScreenReaderService.LANG_KOREAN
+            R.id.rbZh -> ScreenReaderService.LANG_CHINESE
+            R.id.rbEn -> ScreenReaderService.LANG_ENGLISH
+            else -> ScreenReaderService.LANG_JAPANESE
         }
 
     private fun startReading() {

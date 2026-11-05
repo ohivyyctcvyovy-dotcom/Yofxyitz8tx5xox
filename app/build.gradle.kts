@@ -10,8 +10,8 @@ android {
         applicationId = "com.example.telaleitor"
         minSdk = 24
         targetSdk = 34
-        versionCode = 15
-        versionName = "1.14"
+        versionCode = 16
+        versionName = "1.15"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

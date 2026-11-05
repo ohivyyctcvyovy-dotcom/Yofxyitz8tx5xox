@@ -719,7 +719,8 @@ class ScreenReaderService : Service() {
     ): Bitmap {
         // Limite de memória adequado a aparelhos de entrada (ex.: Galaxy A04e).
         val maxDimension = 2200f
-        val scale = minOf(1.6f, maxDimension / maxOf(source.width, source.height).toFloat()).coerceAtLeast(1.0f)
+        // Permite reduzir capturas grandes até 2200 px; só amplia imagens menores.
+        val scale = minOf(1.6f, maxDimension / maxOf(source.width, source.height).toFloat())
         val w = (source.width * scale).toInt().coerceAtLeast(1)
         val h = (source.height * scale).toInt().coerceAtLeast(1)
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)

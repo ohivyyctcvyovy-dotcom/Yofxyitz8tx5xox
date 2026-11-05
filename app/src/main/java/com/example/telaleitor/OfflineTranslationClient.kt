@@ -10,7 +10,10 @@ import java.util.concurrent.Executors
  */
 class OfflineTranslationClient(context: Context) {
     private val appContext = context.applicationContext
-    private val executor = Executors.newSingleThreadExecutor()
+
+    companion object {
+        private val executor = Executors.newSingleThreadExecutor()
+    }
 
     fun translate(
         text: String,

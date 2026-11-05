@@ -86,6 +86,8 @@ class ScreenReaderService : Service() {
     private var floatingExpanded = false
     private var resultPanel: View? = null
     private var sourceLang: String = LANG_AUTO
+    // Mantém a escolha do usuário separada do idioma detectado na leitura atual.
+    private var autoDetectEnabled: Boolean = true
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var screenW = 0
@@ -139,6 +141,7 @@ class ScreenReaderService : Service() {
             ACTION_START -> {
                 startAsForeground()
                 sourceLang = intent.getStringExtra(EXTRA_LANG) ?: LANG_AUTO
+                autoDetectEnabled = sourceLang == LANG_AUTO
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
                 val data = readDataExtra(intent)
                 if (data == null) {
@@ -811,7 +814,7 @@ class ScreenReaderService : Service() {
     }
 
     private fun readText(bitmap: Bitmap) {
-        if (sourceLang == LANG_AUTO) {
+        if (autoDetectEnabled) {
             readTextAutomatically(bitmap)
         } else {
             readTextWithLanguage(bitmap)

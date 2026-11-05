@@ -823,12 +823,12 @@ class ScreenReaderService : Service() {
                         block.lines.joinToString("\n") { line -> line.text.trim() }
                     }.trim()
                     val value = score(found)
-                    Log.d(TAG, "OCR variante \${index + 1}: score=$value, chars=\${found.length}")
+                    Log.d(TAG, "OCR variante ${index + 1}: score=$value, chars=${found.length}")
                     if (value > bestScore) runPass(index + 1, found, value)
                     else runPass(index + 1, bestText, bestScore)
                 }
                 .addOnFailureListener { error ->
-                    Log.w(TAG, "Tentativa OCR \${index + 1} falhou", error)
+                    Log.w(TAG, "Tentativa OCR ${index + 1} falhou", error)
                     runPass(index + 1, bestText, bestScore)
                 }
         }

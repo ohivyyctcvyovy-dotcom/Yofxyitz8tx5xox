@@ -26,13 +26,13 @@ jobs:
           targets: aarch64-linux-android,armv7-linux-androideabi
       - name: Instalar cargo-ndk
         run: cargo install cargo-ndk --locked
-      - name: Configurar Android SDK e instalar NDK 28
-        run: |
-          SDK_ROOT=/usr/local/lib/android/sdk
-          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
-          echo "$SDK_ROOT/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
-          yes | "$SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager" --licenses
-          "$SDK_ROOT/cmdline-tools/16.0/bin/sdkmanager" --install "ndk;28.0.13004108"
+      - name: Preparar Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: 'latest'
+          packages: ''
+      - name: Instalar Android NDK 28
+        run: yes | sdkmanager --licenses && sdkmanager --install "ndk;28.0.13004108"
       - name: Compilar motor SLIMT nativo
         working-directory: app/src/main/rust
         run: |

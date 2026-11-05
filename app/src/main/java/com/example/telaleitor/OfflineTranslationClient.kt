@@ -34,13 +34,14 @@ class OfflineTranslationClient(context: Context) {
             try {
                 val initialized = NativeOfflineTranslator.initialize(appContext)
                 if (!initialized) error("Não foi possível iniciar o motor SLIMT.")
-                // The catalog routes Japanese, Korean and Chinese through English.
-                val sourceInstall = NativeOfflineTranslator.installLanguage(source)
-                if (sourceInstall != "OK") error(sourceInstall.removePrefix("ERROR:"))
+                // O idioma intermediário é inglês, mas o pacote obrigatório de destino
+                // é inglês -> português. O catálogo associa esse pacote ao idioma "pt".
                 if (source != "en") {
-                    val englishInstall = NativeOfflineTranslator.installLanguage("en")
-                    if (englishInstall != "OK") error(englishInstall.removePrefix("ERROR:"))
+                    val sourceInstall = NativeOfflineTranslator.installLanguage(source)
+                    if (sourceInstall != "OK") error(sourceInstall.removePrefix("ERROR:"))
                 }
+                val targetInstall = NativeOfflineTranslator.installLanguage("pt")
+                if (targetInstall != "OK") error(targetInstall.removePrefix("ERROR:"))
                 // O modelo SLIMT pode falhar com blocos muito longos. Traduzimos
                 // em partes menores, preservando a ordem e os limites das frases.
                 val chunks = splitForTranslation(text)

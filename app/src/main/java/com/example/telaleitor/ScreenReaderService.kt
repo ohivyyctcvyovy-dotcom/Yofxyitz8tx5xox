@@ -566,15 +566,17 @@ class ScreenReaderService : Service() {
         val padded = Bitmap.createBitmap(paddedWidth, height, Bitmap.Config.ARGB_8888)
         try {
             padded.copyPixelsFromBuffer(plane.buffer)
-            return Bitmap.createBitmap(padded, 0, 0, width, height).also {
-                if (screenW != width || screenH != height) {
-                    Log.w(TAG, "Dimensão da captura ajustada: ${screenW}x${screenH} -> ${width}x${height}")
-                    screenW = width
-                    screenH = height
-                }
+            val output = if (paddedWidth == width) padded
+                else Bitmap.createBitmap(padded, 0, 0, width, height).also { padded.recycle() }
+            if (screenW != width || screenH != height) {
+                Log.w(TAG, "Dimensão da captura ajustada: ${screenW}x${screenH} -> ${width}x${height}")
+                screenW = width
+                screenH = height
             }
-        } finally {
-            padded.recycle()
+            return output
+        } catch (error: Exception) {
+            if (!padded.isRecycled) padded.recycle()
+            throw error
         }
     }
 
@@ -767,9 +769,11 @@ class ScreenReaderService : Service() {
             if (index >= languages.size) {
                 val best = outputs.maxByOrNull { scriptScore(it.second) }?.second.orEmpty().trim()
                 if (best.isBlank()) {
+                    if (!bitmap.isRecycled) bitmap.recycle()
                     say("Não encontrei texto legível. Tente selecionar uma área maior ou mais nítida.")
                     return
                 }
+                if (!bitmap.isRecycled) bitmap.recycle()
                 identifySourceLanguage(best) { detected ->
                     sourceLang = detected
                     Log.d(TAG, "Modo automático: idioma=$sourceLang; texto OCR=${best.length} caracteres")
@@ -851,6 +855,7 @@ class ScreenReaderService : Service() {
             recognizer.close()
             if (!enhanced.isRecycled) enhanced.recycle()
             if (!grayscale.isRecycled) grayscale.recycle()
+            if (!bitmap.isRecycled) bitmap.recycle()
             val finalText = bestText.trim()
             Log.d(TAG, "OCR selecionado ($sourceLang): $finalText")
             if (finalText.isEmpty()) say("Não encontrei texto legível. Tente selecionar uma área maior ou mais nítida.")

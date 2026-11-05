@@ -45,7 +45,6 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.languageid.LanguageIdentification
-import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
 import com.google.mlkit.vision.common.InputImage
@@ -69,6 +68,10 @@ class ScreenReaderService : Service() {
         const val EXTRA_DATA = "data"
         const val EXTRA_LANG = "lang"
         const val LANG_AUTO = "auto"
+        const val LANG_JAPANESE = "ja"
+        const val LANG_CHINESE = "zh"
+        const val LANG_KOREAN = "ko"
+        const val LANG_ENGLISH = "en"
         private const val CHANNEL_ID = "leitor_tela"
         private const val NOTIF_ID = 1
         private const val TAG = "ScreenReader"
@@ -551,9 +554,9 @@ class ScreenReaderService : Service() {
         say("Analisando a região selecionada.")
         val labeler = ImageLabeling.getClient(ImageLabelerOptions.DEFAULT_OPTIONS)
         val recognizer = when (sourceLang) {
-            TranslateLanguage.JAPANESE -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
-            TranslateLanguage.CHINESE -> TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
-            TranslateLanguage.KOREAN -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
+            LANG_JAPANESE -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
+            LANG_CHINESE -> TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+            LANG_KOREAN -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
             else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
         }
         var labelsDone = false
@@ -647,9 +650,9 @@ class ScreenReaderService : Service() {
     }
 
     private fun createTextRecognizer(language: String): TextRecognizer = when (language) {
-        TranslateLanguage.JAPANESE -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
-        TranslateLanguage.CHINESE -> TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
-        TranslateLanguage.KOREAN -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
+        LANG_JAPANESE -> TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
+        LANG_CHINESE -> TextRecognition.getClient(ChineseTextRecognizerOptions.Builder().build())
+        LANG_KOREAN -> TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
         else -> TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
 
@@ -666,11 +669,11 @@ class ScreenReaderService : Service() {
             if (cp in 0x1100..0x11FF || cp in 0x3130..0x318F || cp in 0xAC00..0xD7AF) hangul++
         }
         if (hangul > 0) {
-            callback(TranslateLanguage.KOREAN)
+            callback(LANG_KOREAN)
             return
         }
         if (kana > 0) {
-            callback(TranslateLanguage.JAPANESE)
+            callback(LANG_JAPANESE)
             return
         }
 
@@ -678,12 +681,12 @@ class ScreenReaderService : Service() {
         identifier.identifyLanguage(text)
             .addOnSuccessListener { languageTag ->
                 identifier.close()
-                val translatedCode = TranslateLanguage.fromLanguageTag(languageTag)
-                val supported = TranslateLanguage.getAllLanguages()
+                val translatedCode = languageTag.substringBefore('-').lowercase(Locale.ROOT)
+                val supported = setOf(LANG_JAPANESE, LANG_CHINESE, LANG_KOREAN, LANG_ENGLISH)
                 val detected = when {
-                    translatedCode != null && supported.contains(translatedCode) -> translatedCode
-                    han > 0 -> TranslateLanguage.CHINESE
-                    else -> TranslateLanguage.ENGLISH
+                    translatedCode in supported -> translatedCode
+                    han > 0 -> LANG_CHINESE
+                    else -> LANG_ENGLISH
                 }
                 Log.d(TAG, "Idioma identificado: tag=$languageTag, destino=$detected")
                 callback(detected)
@@ -691,7 +694,7 @@ class ScreenReaderService : Service() {
             .addOnFailureListener { error ->
                 identifier.close()
                 Log.w(TAG, "Identificação de idioma falhou; usando fallback", error)
-                callback(if (han > 0) TranslateLanguage.CHINESE else TranslateLanguage.ENGLISH)
+                callback(if (han > 0) LANG_CHINESE else LANG_ENGLISH)
             }
     }
 
@@ -699,10 +702,10 @@ class ScreenReaderService : Service() {
     // e escolhe o texto que contém mais caracteres legíveis de um alfabeto real.
     private fun readTextAutomatically(bitmap: Bitmap) {
         val languages = listOf(
-            TranslateLanguage.JAPANESE,
-            TranslateLanguage.CHINESE,
-            TranslateLanguage.KOREAN,
-            TranslateLanguage.ENGLISH
+            LANG_JAPANESE,
+            LANG_CHINESE,
+            LANG_KOREAN,
+            LANG_ENGLISH
         )
         val outputs = mutableListOf<Pair<String, String>>()
 
@@ -787,9 +790,9 @@ class ScreenReaderService : Service() {
                 val isHangul = cp in 0x1100..0x11FF || cp in 0x3130..0x318F || cp in 0xAC00..0xD7AF
                 val isLatin = cp in 0x0041..0x024F
                 val expected = when (sourceLang) {
-                    TranslateLanguage.JAPANESE -> isHan || isKana
-                    TranslateLanguage.CHINESE -> isHan
-                    TranslateLanguage.KOREAN -> isHangul || isHan
+                    LANG_JAPANESE -> isHan || isKana
+                    LANG_CHINESE -> isHan
+                    LANG_KOREAN -> isHangul || isHan
                     else -> isLatin
                 }
                 if (expected) expectedScript++
@@ -838,8 +841,8 @@ class ScreenReaderService : Service() {
     // Mantém mais contexto por trecho e corrige quebras de linha causadas pelo OCR.
     // Japonês e chinês normalmente não usam espaço entre frases; coreano usa espaços.
     private fun splitParagraph(text: String, limit: Int = 1400): List<String> {
-        val usesSpaces = sourceLang != TranslateLanguage.JAPANESE &&
-            sourceLang != TranslateLanguage.CHINESE
+        val usesSpaces = sourceLang != LANG_JAPANESE &&
+            sourceLang != LANG_CHINESE
         val normalized = text
             .replace(Regex("[\t\r]+"), " ")
             .replace(Regex("(?<!\n)\n(?!\n)"), if (usesSpaces) " " else "")
@@ -894,48 +897,22 @@ class ScreenReaderService : Service() {
         return out.filter { it.isNotBlank() }
     }
 
+    // A tradução é executada por um serviço local instalado no próprio aparelho.
+    // O texto é enviado somente por Binder IPC entre aplicativos no mesmo dispositivo.
     private fun translate(text: String) {
-        val translator = Translation.getClient(TranslatorOptions.Builder()
-            .setSourceLanguage(sourceLang).setTargetLanguage(TranslateLanguage.PORTUGUESE).build())
-        translator.downloadModelIfNeeded(DownloadConditions.Builder().build())
-            .addOnSuccessListener {
-                val paragraphs = text.split(Regex("\\n\\s*\\n")).filter { it.isNotBlank() }
-                val translatedParagraphs = mutableListOf<String>()
-                fun fail(error: Exception) {
-                    translator.close()
-                    Log.e(TAG, "Falha na tradução local", error)
-                    say("Não consegui concluir a tradução. Tente novamente.")
-                }
-                fun nextParagraph(p: Int) {
-                    if (p >= paragraphs.size) {
-                        translator.close()
-                        val result = translatedParagraphs.joinToString("\n\n")
-                        // Leitura direta, sem janela de resultado.
-                        say(result)
-                        return
-                    }
-                    val parts = splitParagraph(paragraphs[p])
-                    val translatedParts = mutableListOf<String>()
-                    fun nextPart(i: Int) {
-                        if (i >= parts.size) {
-                            val joiner = if (sourceLang == TranslateLanguage.JAPANESE || sourceLang == TranslateLanguage.CHINESE) "" else " "
-                            translatedParagraphs.add(translatedParts.joinToString(joiner))
-                            nextParagraph(p + 1)
-                            return
-                        }
-                        translator.translate(parts[i])
-                            .addOnSuccessListener { translatedParts.add(it); nextPart(i + 1) }
-                            .addOnFailureListener { fail(it) }
-                    }
-                    nextPart(0)
-                }
-                nextParagraph(0)
+        val from = sourceLang.takeIf { it != LANG_AUTO }
+        OfflineTranslationClient(this).translate(
+            text = text,
+            sourceLanguage = from,
+            onSuccess = { result ->
+                Log.d(TAG, "Tradução offline concluída (\${result.length} caracteres)")
+                say(result)
+            },
+            onError = { message ->
+                Log.e(TAG, "Tradução offline indisponível: $message")
+                say(message)
             }
-            .addOnFailureListener { error ->
-                translator.close()
-                Log.e(TAG, "Modelo de tradução indisponível", error)
-                say("O modelo de tradução precisa ser baixado uma vez. Conecte-se à internet e tente novamente.")
-            }
+        )
     }
 
     // Painel permite comparar e copiar o texto original e a tradução sem confundi-los.

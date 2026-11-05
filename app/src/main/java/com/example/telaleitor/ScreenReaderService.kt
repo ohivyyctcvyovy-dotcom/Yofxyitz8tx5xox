@@ -351,7 +351,7 @@ class ScreenReaderService : Service() {
                             .apply()
                     } else if (!longPressed) {
                         removeFloatingMenu()
-                        readWholeScreen()
+                        showSelection()
                     }
                     true
                 }
@@ -442,9 +442,19 @@ class ScreenReaderService : Service() {
         removeFloatingMenu()
         floatingButton?.visibility = View.GONE
         overlay = SelectionView(this) { rect ->
+            val selectionView = overlay
+            val captureRect = if (rect != null && selectionView != null &&
+                selectionView.width > 0 && selectionView.height > 0) {
+                RectF(
+                    rect.left * screenW / selectionView.width,
+                    rect.top * screenH / selectionView.height,
+                    rect.right * screenW / selectionView.width,
+                    rect.bottom * screenH / selectionView.height
+                )
+            } else null
             removeOverlay()
-            if (rect != null) {
-                handler.postDelayed({ grabFrame(rect, 0) }, 350)
+            if (captureRect != null) {
+                handler.postDelayed({ grabFrame(captureRect, 0) }, 350)
             } else {
                 floatingButton?.visibility = View.VISIBLE
             }
@@ -454,7 +464,14 @@ class ScreenReaderService : Service() {
         val params = WindowManager.LayoutParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             type, WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT)
-        wm.addView(overlay, params)
+        try {
+            wm.addView(overlay, params)
+        } catch (error: Exception) {
+            Log.e(TAG, "Não foi possível abrir a seleção de texto", error)
+            removeOverlay()
+            floatingButton?.visibility = View.VISIBLE
+            say("Não consegui abrir a seleção. Verifique a permissão de sobreposição do Aurora.")
+        }
     }
 
     private fun removeOverlay() {
@@ -488,10 +505,14 @@ class ScreenReaderService : Service() {
 
     private fun grabFrame(rect: RectF, tries: Int) {
         val r = reader
-        if (r == null) { say("A captura não está ativa. Inicie o app de novo."); return }
+        if (r == null) {
+            floatingButton?.visibility = View.VISIBLE
+            say("A captura não está ativa. Inicie o app de novo.")
+            return
+        }
         val image = r.acquireLatestImage()
         if (image == null) {
-            if (tries < 5) handler.postDelayed({ grabFrame(rect, tries + 1) }, 300)
+            if (tries < 8) handler.postDelayed({ grabFrame(rect, tries + 1) }, 250)
             else {
                 floatingButton?.visibility = View.VISIBLE
                 say("Não consegui capturar a tela.")
@@ -704,14 +725,13 @@ class ScreenReaderService : Service() {
                 fun fail(error: Exception) {
                     translator.close()
                     Log.e(TAG, "Falha na tradução local", error)
-                    showResultPanel(text, "Não foi possível concluir a tradução. O texto original foi preservado.")
-                    say("Não consegui concluir a tradução. O texto reconhecido está na tela.")
+                    say("Não consegui concluir a tradução. Tente novamente.")
                 }
                 fun nextParagraph(p: Int) {
                     if (p >= paragraphs.size) {
                         translator.close()
                         val result = translatedParagraphs.joinToString("\n\n")
-                        showResultPanel(text, result)
+                        // Leitura direta, sem janela de resultado.
                         say(result)
                         return
                     }
@@ -735,8 +755,7 @@ class ScreenReaderService : Service() {
             .addOnFailureListener { error ->
                 translator.close()
                 Log.e(TAG, "Modelo de tradução indisponível", error)
-                showResultPanel(text, "O modelo ainda não está instalado. Conecte-se uma vez para baixá-lo; depois poderá traduzir offline.")
-                say("O modelo de tradução precisa ser baixado uma vez.")
+                say("O modelo de tradução precisa ser baixado uma vez. Conecte-se à internet e tente novamente.")
             }
     }
 

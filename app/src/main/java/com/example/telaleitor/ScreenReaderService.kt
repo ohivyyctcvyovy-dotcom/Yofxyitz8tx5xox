@@ -685,29 +685,58 @@ class ScreenReaderService : Service() {
         runPass(0, "", Int.MIN_VALUE)
     }
 
-    // Textos extensos são traduzidos em partes menores, mantendo os parágrafos.
-    private fun splitParagraph(text: String, limit: Int = 700): List<String> {
-        if (text.length <= limit) return listOf(text)
-        val sentences = text.split(Regex("(?<=[.!?。！？；;])\\s*")).filter { it.isNotBlank() }
+    // Mantém mais contexto por trecho e corrige quebras de linha causadas pelo OCR.
+    // Japonês e chinês normalmente não usam espaço entre frases; coreano usa espaços.
+    private fun splitParagraph(text: String, limit: Int = 1400): List<String> {
+        val usesSpaces = sourceLang != TranslateLanguage.JAPANESE &&
+            sourceLang != TranslateLanguage.CHINESE
+        val normalized = text
+            .replace(Regex("[\t\r]+"), " ")
+            .replace(Regex("(?<!\n)\n(?!\n)"), if (usesSpaces) " " else "")
+            .trim()
+        if (normalized.length <= limit) return listOf(normalized)
+
+        // Divide depois da pontuação, sem descartar o sinal que encerra a frase.
+        val sentences = normalized.split(Regex("(?<=[.!?。！？；;])"))
+            .map { it.trim() }.filter { it.isNotBlank() }
         val out = mutableListOf<String>()
         var current = StringBuilder()
+
         fun flush() {
-            if (current.isNotEmpty()) { out.add(current.toString().trim()); current = StringBuilder() }
+            val value = current.toString().trim()
+            if (value.isNotEmpty()) out.add(value)
+            current = StringBuilder()
         }
+
+        fun splitLongSentence(value: String) {
+            var offset = 0
+            while (offset < value.length) {
+                var endIndex = (offset + limit).coerceAtMost(value.length)
+                if (endIndex < value.length) {
+                    val boundary = if (usesSpaces) {
+                        value.lastIndexOf(' ', endIndex)
+                    } else {
+                        value.lastIndexOfAny(charArrayOf('、', '，', '；', '。', '！', '？'), endIndex)
+                    }
+                    if (boundary > offset + limit / 2) endIndex = boundary + 1
+                    if (endIndex < value.length && endIndex > offset && value[endIndex - 1].isHighSurrogate()) endIndex--
+                }
+                if (endIndex <= offset) endIndex = (offset + limit).coerceAtMost(value.length)
+                val piece = value.substring(offset, endIndex).trim()
+                if (piece.isNotEmpty()) out.add(piece)
+                offset = endIndex
+                while (offset < value.length && value[offset].isWhitespace()) offset++
+            }
+        }
+
         for (sentence in sentences) {
             if (sentence.length > limit) {
                 flush()
-                var i = 0
-                while (i < sentence.length) {
-                    var j = (i + limit).coerceAtMost(sentence.length)
-                    if (j < sentence.length && sentence[j - 1].isHighSurrogate()) j--
-                    if (j <= i) j = (i + limit).coerceAtMost(sentence.length)
-                    out.add(sentence.substring(i, j))
-                    i = j
-                }
+                splitLongSentence(sentence)
             } else {
-                if (current.isNotEmpty() && current.length + sentence.length > limit) flush()
-                if (current.isNotEmpty() && sourceLang != TranslateLanguage.JAPANESE && sourceLang != TranslateLanguage.CHINESE) current.append(' ')
+                val extra = if (current.isNotEmpty() && usesSpaces) 1 else 0
+                if (current.isNotEmpty() && current.length + extra + sentence.length > limit) flush()
+                if (current.isNotEmpty() && usesSpaces) current.append(' ')
                 current.append(sentence)
             }
         }

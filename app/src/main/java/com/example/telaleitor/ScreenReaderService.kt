@@ -865,26 +865,64 @@ class ScreenReaderService : Service() {
         if (brazilianVoice != null) engine.voice = brazilianVoice
     }
 
+    // Prepara o texto para a voz e divide apenas em limites naturais,
+    // evitando cortar palavras e reduzir pausas artificiais entre trechos.
     private fun say(message: String) {
         handler.post {
             val engine = tts
             if (!ttsReady || engine == null) { toast(message); return@post }
-            val remaining = message.trim()
-            if (remaining.isEmpty()) return@post
-            var start = 0; var first = true
-            while (start < remaining.length) {
-                var end = (start + 3200).coerceAtMost(remaining.length)
-                if (end < remaining.length) {
-                    val breakAt = remaining.lastIndexOf(' ', end)
-                    if (breakAt > start + 1200) end = breakAt
+
+            val spoken = message
+                .replace("\\r\\n", "\\n")
+                .replace(Regex("(?m)^\\\\s*[-–—]+\\\\s*$"), " ")
+                .replace(Regex("(?<![\\\\p{L}\\\\p{N}])[-–—](?![\\\\p{L}\\\\p{N}])"), " ")
+                .replace(Regex("[–—]"), ", ")
+                .replace(Regex("[\\\\t ]+"), " ")
+                .replace(Regex("\\\\n+"), " ")
+                .replace(Regex(" +([,.;:!?])"), "$1")
+                .trim()
+            if (spoken.isEmpty()) return@post
+
+            val maxLength = TextToSpeech.getMaxSpeechInputLength().coerceAtLeast(1000)
+            var start = 0
+            var first = true
+            while (start < spoken.length) {
+                var end = (start + maxLength).coerceAtMost(spoken.length)
+                if (end < spoken.length) {
+                    // Primeiro tenta terminar uma frase; depois, uma palavra.
+                    val sentenceBreak = spoken.lastIndexOfAny(
+                        charArrayOf('.', '!', '?', ';', ':', ',', '。', '！', '？'),
+                        end - 1
+                    )
+                    if (sentenceBreak > start + maxLength / 2) {
+                        end = sentenceBreak + 1
+                    } else {
+                        val spaceBefore = spoken.lastIndexOf(' ', end - 1)
+                        if (spaceBefore > start) {
+                            end = spaceBefore
+                        } else {
+                            val spaceAfter = spoken.indexOf(' ', end)
+                            if (spaceAfter > end) end = spaceAfter
+                        }
+                    }
+                    if (end < spoken.length && end > start && spoken[end - 1].isHighSurrogate()) end--
                 }
-                val part = remaining.substring(start, end).trim()
+
+                val part = spoken.substring(start, end).trim()
                 if (part.isNotEmpty()) {
-                    engine.speak(part, if (first) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD, null, "leitura_$start")
+                    val result = engine.speak(
+                        part,
+                        if (first) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD,
+                        null,
+                        "leitura_$start"
+                    )
+                    if (result == TextToSpeech.ERROR) {
+                        Log.e(TAG, "O mecanismo de voz recusou um trecho da leitura")
+                    }
                     first = false
                 }
                 start = end
-                while (start < remaining.length && remaining[start].isWhitespace()) start++
+                while (start < spoken.length && spoken[start].isWhitespace()) start++
             }
         }
     }

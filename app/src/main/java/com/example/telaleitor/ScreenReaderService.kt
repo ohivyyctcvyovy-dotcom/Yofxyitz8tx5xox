@@ -777,7 +777,6 @@ class ScreenReaderService : Service() {
                 // (por exemplo, espanhol ou francês): isso gerava traduções erradas.
                 val detected = when {
                     translatedCode in supported -> translatedCode
-                    han > 0 && translatedCode in setOf("und", "zh", "zh-tw", "zh-hant") -> LANG_CHINESE
                     else -> LANG_UNSUPPORTED
                 }
                 Log.d(TAG, "Idioma identificado: tag=$languageTag, destino=$detected")
@@ -786,7 +785,8 @@ class ScreenReaderService : Service() {
             .addOnFailureListener { error ->
                 identifier.close()
                 Log.w(TAG, "Identificação de idioma falhou; não vou presumir inglês", error)
-                callback(if (han > 0) LANG_CHINESE else LANG_UNSUPPORTED)
+                // Hanzi isolado pode ser chinês ou japonês sem kana; não adivinha.
+                callback(LANG_UNSUPPORTED)
             }
     }
 

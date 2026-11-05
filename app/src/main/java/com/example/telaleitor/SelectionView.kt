@@ -39,29 +39,29 @@ class SelectionView(
     private enum class Button { NONE, CANCEL, READ }
 
     private val dim = Paint().apply { color = Color.argb(145, 0, 0, 0) }
-    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(38, 255, 205, 90) }
+    private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(38, 255, 51, 79) }
     private val outline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 3.5f
-        color = Color.rgb(255, 205, 90)
+        color = Color.rgb(255, 51, 79)
     }
-    private val handle = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 205, 90) }
+    private val handle = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 51, 79) }
     private val handleCenter = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(18, 18, 18) }
     private val title = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textSize = 32f
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        typeface = android.graphics.Typeface.create("sans-serif", Typeface.BOLD)
     }
     private val hint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 23f }
     private val cancelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(35, 35, 35) }
-    private val confirmPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 205, 90) }
+    private val confirmPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(255, 51, 79) }
     private val buttonText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE; textSize = 18f; textAlign = Paint.Align.CENTER
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        typeface = android.graphics.Typeface.create("sans-serif", Typeface.BOLD)
     }
     private val confirmText = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.BLACK; textSize = 20f; textAlign = Paint.Align.CENTER
-        typeface = android.graphics.Typeface.DEFAULT_BOLD
+        typeface = android.graphics.Typeface.create("sans-serif", Typeface.BOLD)
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {

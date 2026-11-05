@@ -29,6 +29,7 @@ dependencies {
     implementation("com.google.mlkit:text-recognition-korean:16.0.1")
     implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
     implementation("com.google.mlkit:translate:17.0.3")
+    implementation("com.google.mlkit:language-id:17.0.6")
     // Modelo de classificação de imagens empacotado no APK (processamento local).
     implementation("com.google.mlkit:image-labeling:17.0.9")
 }

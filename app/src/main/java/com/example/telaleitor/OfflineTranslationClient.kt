@@ -1,19 +1,16 @@
 package com.example.telaleitor
 
 import android.content.Context
-import com.google.mlkit.common.model.DownloadConditions
-import com.google.mlkit.nl.translate.TranslateLanguage
-import com.google.mlkit.nl.translate.Translation
-import com.google.mlkit.nl.translate.Translator
-import com.google.mlkit.nl.translate.TranslatorOptions
+import android.util.Log
+import java.util.concurrent.Executors
 
 /**
- * Tradução no próprio aparelho com ML Kit.
- * Os modelos são baixados pelo Aurora no primeiro uso; depois ficam disponíveis offline.
- * O texto reconhecido nunca é enviado para um serviço de tradução na nuvem.
+ * SLIMT offline translation engine (translator-rs).
+ * Translation models are installed into app-private storage on first use.
  */
 class OfflineTranslationClient(context: Context) {
     private val appContext = context.applicationContext
+    private val executor = Executors.newSingleThreadExecutor()
 
     fun translate(
         text: String,
@@ -21,53 +18,61 @@ class OfflineTranslationClient(context: Context) {
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
-        val source = toMlKitLanguage(sourceLanguage)
+        val source = normalizeLanguage(sourceLanguage)
         if (source == null) {
-            onError("Não consegui identificar o idioma. Selecione inglês, japonês, coreano ou chinês e tente novamente.")
+            onError("Selecione inglês, japonês, coreano ou chinês.")
             return
         }
-        if (source == TranslateLanguage.PORTUGUESE) {
+        if (source == "pt") {
             onSuccess(text)
             return
         }
-
-        val options = TranslatorOptions.Builder()
-            .setSourceLanguage(source)
-            .setTargetLanguage(TranslateLanguage.PORTUGUESE)
-            .build()
-        val translator: Translator = Translation.getClient(options)
-        val conditions = DownloadConditions.Builder().build()
-
-        translator.downloadModelIfNeeded(conditions)
-            .addOnSuccessListener {
-                translator.translate(text)
-                    .addOnSuccessListener { translated ->
-                        translator.close()
-                        val result = translated.trim()
-                        if (result.isBlank()) onError("O tradutor não retornou texto.")
-                        else onSuccess(result)
-                    }
-                    .addOnFailureListener { error ->
-                        translator.close()
-                        onError("Falha ao traduzir: ${error.localizedMessage ?: "tente novamente"}.")
-                    }
+        executor.execute {
+            try {
+                val initialized = NativeOfflineTranslator.initialize(appContext)
+                if (!initialized) error("Não foi possível iniciar o motor SLIMT.")
+                // The catalog routes Japanese, Korean and Chinese through English.
+                val sourceInstall = NativeOfflineTranslator.installLanguage(source)
+                if (sourceInstall != "OK") error(sourceInstall.removePrefix("ERROR:"))
+                if (source != "en") {
+                    val englishInstall = NativeOfflineTranslator.installLanguage("en")
+                    if (englishInstall != "OK") error(englishInstall.removePrefix("ERROR:"))
+                }
+                val translated = NativeOfflineTranslator.translate(source, text)
+                if (translated.startsWith("ERROR:")) error(translated.removePrefix("ERROR:"))
+                if (translated.isBlank()) error("O tradutor não retornou texto.")
+                onSuccess(translated.trim())
+            } catch (e: Exception) {
+                Log.e("AuroraSLIMT", "Falha na tradução offline", e)
+                onError("Falha no tradutor offline: ${e.localizedMessage ?: "tente novamente"}.")
             }
-            .addOnFailureListener { error ->
-                translator.close()
-                onError(
-                    "Não foi possível baixar o modelo de idioma. Conecte à internet uma vez, " +
-                    "tente novamente e depois a tradução funcionará offline. " +
-                    "Detalhe: ${error.localizedMessage ?: "download não concluído"}"
-                )
-            }
+        }
     }
 
-    private fun toMlKitLanguage(code: String?): String? = when (code?.lowercase()) {
-        "en" -> TranslateLanguage.ENGLISH
-        "ja" -> TranslateLanguage.JAPANESE
-        "ko" -> TranslateLanguage.KOREAN
-        "zh", "zh-cn", "zh-tw" -> TranslateLanguage.CHINESE
-        "pt" -> TranslateLanguage.PORTUGUESE
+    private fun normalizeLanguage(code: String?): String? = when (code?.lowercase()) {
+        "en", "english" -> "en"
+        "ja", "ja-jp", "japanese" -> "ja"
+        "ko", "ko-kr", "korean" -> "ko"
+        "zh", "zh-cn", "zh-hans", "zh-tw", "zh-hant", "chinese" -> "zh"
+        "pt", "pt-br", "portuguese" -> "pt"
         else -> null
     }
+}
+
+internal object NativeOfflineTranslator {
+    @Volatile private var initialized = false
+
+    init { System.loadLibrary("aurora_translator") }
+
+    @Synchronized
+    fun initialize(context: Context): Boolean {
+        if (initialized) return true
+        val index = context.assets.open("index_v7.json").bufferedReader().use { it.readText() }
+        initialized = nativeInit(index, context.filesDir.absolutePath + "/aurora-translator")
+        return initialized
+    }
+
+    external fun nativeInit(indexJson: String, baseDir: String): Boolean
+    external fun nativeInstallLanguage(code: String): String
+    external fun nativeTranslate(from: String, text: String): String
 }

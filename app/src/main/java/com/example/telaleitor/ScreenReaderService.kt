@@ -302,7 +302,7 @@ class ScreenReaderService : Service() {
                 setStroke(2, gold)
             }
             elevation = 12f
-            contentDescription = "Aurora 455. Toque para ler a tela. Toque e segure para abrir as ferramentas. Arraste para mover."
+            contentDescription = "Aurora 455. Toque para selecionar uma área e ouvir a tradução. Toque e segure para abrir as ferramentas. Arraste para mover."
         }
         var downX = 0f
         var downY = 0f

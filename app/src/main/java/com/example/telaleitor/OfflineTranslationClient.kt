@@ -1,18 +1,16 @@
 package com.example.telaleitor
 
-import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
-import android.content.ServiceConnection
-import android.os.IBinder
-import android.os.RemoteException
-import dev.davidv.translator.ITranslationCallback
-import dev.davidv.translator.ITranslationService
-import dev.davidv.translator.TranslationError
+import com.google.mlkit.common.model.DownloadConditions
+import com.google.mlkit.nl.translate.TranslateLanguage
+import com.google.mlkit.nl.translate.Translation
+import com.google.mlkit.nl.translate.Translator
+import com.google.mlkit.nl.translate.TranslatorOptions
 
 /**
- * Connects to Offline Translator's on-device translation service.
- * The captured text is sent only over Android Binder IPC on this device.
+ * Tradução no próprio aparelho com ML Kit.
+ * Os modelos são baixados pelo Aurora no primeiro uso; depois ficam disponíveis offline.
+ * O texto reconhecido nunca é enviado para um serviço de tradução na nuvem.
  */
 class OfflineTranslationClient(context: Context) {
     private val appContext = context.applicationContext
@@ -23,70 +21,53 @@ class OfflineTranslationClient(context: Context) {
         onSuccess: (String) -> Unit,
         onError: (String) -> Unit
     ) {
-        val intent = Intent("dev.davidv.translator.ITranslationService")
-            .setPackage("dev.davidv.translator")
-
-        val connection = object : ServiceConnection {
-            private var completed = false
-
-            private fun finish(action: () -> Unit) {
-                if (completed) return
-                completed = true
-                try { appContext.unbindService(this) } catch (_: Exception) {}
-                action()
-            }
-
-            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-                val api = ITranslationService.Stub.asInterface(binder)
-                if (api == null) {
-                    finish { onError("Não consegui iniciar o tradutor offline.") }
-                    return
-                }
-                try {
-                    api.translate(
-                        text,
-                        sourceLanguage,
-                        "pt",
-                        object : ITranslationCallback.Stub() {
-                            override fun onTranslationResult(translatedText: String?) {
-                                finish {
-                                    val value = translatedText.orEmpty().trim()
-                                    if (value.isBlank()) onError("O tradutor não retornou texto.")
-                                    else onSuccess(value)
-                                }
-                            }
-
-                            override fun onTranslationError(error: TranslationError?) {
-                                finish {
-                                    onError(error?.message?.takeIf { it.isNotBlank() }
-                                        ?: "Não foi possível traduzir. Abra o Offline Translator e confira se o pacote de idiomas está baixado.")
-                                }
-                            }
-                        }
-                    )
-                } catch (e: RemoteException) {
-                    finish { onError("Falha na comunicação com o tradutor offline.") }
-                } catch (e: Exception) {
-                    finish { onError("Erro ao iniciar a tradução offline: ${e.message ?: "desconhecido"}") }
-                }
-            }
-
-            override fun onServiceDisconnected(name: ComponentName?) {
-                finish { onError("O tradutor offline foi desconectado.") }
-            }
-
-            override fun onBindingDied(name: ComponentName?) {
-                finish { onError("O serviço do tradutor offline foi encerrado.") }
-            }
+        val source = toMlKitLanguage(sourceLanguage)
+        if (source == null) {
+            onError("Não consegui identificar o idioma. Selecione inglês, japonês, coreano ou chinês e tente novamente.")
+            return
+        }
+        if (source == TranslateLanguage.PORTUGUESE) {
+            onSuccess(text)
+            return
         }
 
-        try {
-            val bound = appContext.bindService(intent, connection, Context.BIND_AUTO_CREATE)
-            if (!bound) {
-                onError("Instale e abra o Offline Translator para habilitar a tradução local. Depois, baixe o pacote de idiomas desejado.")
+        val options = TranslatorOptions.Builder()
+            .setSourceLanguage(source)
+            .setTargetLanguage(TranslateLanguage.PORTUGUESE)
+            .build()
+        val translator: Translator = Translation.getClient(options)
+        val conditions = DownloadConditions.Builder().build()
+
+        translator.downloadModelIfNeeded(conditions)
+            .addOnSuccessListener {
+                translator.translate(text)
+                    .addOnSuccessListener { translated ->
+                        translator.close()
+                        val result = translated.trim()
+                        if (result.isBlank()) onError("O tradutor não retornou texto.")
+                        else onSuccess(result)
+                    }
+                    .addOnFailureListener { error ->
+                        translator.close()
+                        onError("Falha ao traduzir: ${error.localizedMessage ?: "tente novamente"}.")
+                    }
             }
-        } catch (e: Exception) {
-            onError("Não consegui conectar ao tradutor offline. Verifique se ele está instalado.")
-        }
+            .addOnFailureListener { error ->
+                translator.close()
+                onError(
+                    "Não foi possível baixar o modelo de idioma. Conecte à internet uma vez, " +
+                    "tente novamente e depois a tradução funcionará offline. " +
+                    "Detalhe: ${error.localizedMessage ?: "download não concluído"}"
+                )
+            }
+    }
+
+    private fun toMlKitLanguage(code: String?): String? = when (code?.lowercase()) {
+        "en" -> TranslateLanguage.ENGLISH
+        "ja" -> TranslateLanguage.JAPANESE
+        "ko" -> TranslateLanguage.KOREAN
+        "zh", "zh-cn", "zh-tw" -> TranslateLanguage.CHINESE
+        "pt" -> TranslateLanguage.PORTUGUESE
+        else -> null
     }
 }

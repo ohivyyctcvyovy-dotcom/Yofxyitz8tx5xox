@@ -895,8 +895,8 @@ class ScreenReaderService : Service() {
         return out.filter { it.isNotBlank() }
     }
 
-    // A tradução é executada por um serviço local instalado no próprio aparelho.
-    // O texto é enviado somente por Binder IPC entre aplicativos no mesmo dispositivo.
+    // A tradução é executada pelo modelo ML Kit dentro do próprio Aurora.
+    // Na primeira utilização, o modelo é baixado; depois a tradução funciona offline.
     private fun translate(text: String) {
         val from = sourceLang.takeIf { it != LANG_AUTO }
         OfflineTranslationClient(this).translate(

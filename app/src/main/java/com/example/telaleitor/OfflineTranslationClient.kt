@@ -23,7 +23,7 @@ class OfflineTranslationClient(context: Context) {
     ) {
         val source = normalizeLanguage(sourceLanguage)
         if (source == null) {
-            onError("Selecione inglês, japonês, coreano ou chinês.")
+            onError("Idioma não compatível com os modelos offline atuais. São aceitos inglês, japonês, coreano e chinês; português é mantido sem tradução.")
             return
         }
         if (source == "pt") {
@@ -53,6 +53,9 @@ class OfflineTranslationClient(context: Context) {
                 }.joinToString(" ").trim()
                 if (translated.isBlank()) error("O tradutor não retornou texto.")
                 onSuccess(translated)
+            } catch (e: LinkageError) {
+                Log.e("AuroraSLIMT", "Biblioteca nativa SLIMT indisponível", e)
+                onError("O motor nativo de tradução não conseguiu iniciar neste aparelho. Reinstale a versão mais recente do Aurora 455.")
             } catch (e: Exception) {
                 Log.e("AuroraSLIMT", "Falha na tradução offline", e)
                 onError("Falha no tradutor offline: ${e.localizedMessage ?: "tente novamente"}.")

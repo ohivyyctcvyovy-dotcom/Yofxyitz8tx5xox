@@ -8,7 +8,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 jni = "0.21"
-translator = { git = "https://github.com/DavidVentura/translator-rs.git", default-features = false }
+translator = { git = "https://github.com/DavidVentura/translator-rs.git", rev = "b0407afbb09501764635576ad568f27260489470", default-features = false }
 ureq = { version = "2.12", default-features = false, features = ["tls"] }
 flate2 = "1"
 zip = { version = "2", default-features = false, features = ["deflate"] }

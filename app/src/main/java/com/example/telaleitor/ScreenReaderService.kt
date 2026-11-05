@@ -707,7 +707,7 @@ class ScreenReaderService : Service() {
                 }
             } else {
                 if (current.isNotEmpty() && current.length + sentence.length > limit) flush()
-                if (current.isNotEmpty() && sourceLang == TranslateLanguage.ENGLISH) current.append(' ')
+                if (current.isNotEmpty() && sourceLang != TranslateLanguage.JAPANESE && sourceLang != TranslateLanguage.CHINESE) current.append(' ')
                 current.append(sentence)
             }
         }
@@ -739,7 +739,7 @@ class ScreenReaderService : Service() {
                     val translatedParts = mutableListOf<String>()
                     fun nextPart(i: Int) {
                         if (i >= parts.size) {
-                            val joiner = if (sourceLang == TranslateLanguage.ENGLISH) " " else ""
+                            val joiner = if (sourceLang == TranslateLanguage.JAPANESE || sourceLang == TranslateLanguage.CHINESE) "" else " "
                             translatedParagraphs.add(translatedParts.joinToString(joiner))
                             nextParagraph(p + 1)
                             return

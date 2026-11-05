@@ -500,8 +500,16 @@ class ScreenReaderService : Service() {
             }
             return
         }
-        val full = imageToBitmap(image)
-        image.close()
+        val full = try {
+            imageToBitmap(image)
+        } catch (error: Exception) {
+            Log.e(TAG, "Falha ao converter a captura da tela em imagem", error)
+            floatingButton?.visibility = View.VISIBLE
+            say("A captura da tela veio em um formato inesperado. Feche e inicie o leitor novamente.")
+            return
+        } finally {
+            image.close()
+        }
         floatingButton?.visibility = View.VISIBLE
         readText(full)
     }
@@ -522,19 +530,52 @@ class ScreenReaderService : Service() {
             }
             return
         }
-        val full = imageToBitmap(image)
-        image.close()
+        val full = try {
+            imageToBitmap(image)
+        } catch (error: Exception) {
+            Log.e(TAG, "Falha ao converter a área capturada", error)
+            floatingButton?.visibility = View.VISIBLE
+            say("Não consegui processar a imagem capturada. Tente selecionar a área novamente.")
+            return
+        } finally {
+            image.close()
+        }
         floatingButton?.visibility = View.VISIBLE
-        val selected = cropBitmap(full, rect)
+        val selected = try {
+            cropBitmap(full, rect)
+        } catch (error: Exception) {
+            Log.e(TAG, "Falha ao recortar a área selecionada", error)
+            full.recycle()
+            say("A área selecionada ficou fora da tela. Selecione novamente.")
+            return
+        }
+        if (selected !== full && !full.isRecycled) full.recycle()
         if (selectionModeVision) analyzeVisual(selected) else readText(selected)
     }
 
     private fun imageToBitmap(image: Image): Bitmap {
-        val plane = image.planes[0]
-        val rowPadding = plane.rowStride - plane.pixelStride * screenW
-        val bmp = Bitmap.createBitmap(screenW + rowPadding / plane.pixelStride, screenH, Bitmap.Config.ARGB_8888)
-        bmp.copyPixelsFromBuffer(plane.buffer)
-        return Bitmap.createBitmap(bmp, 0, 0, screenW, screenH)
+        // Use as dimensões reais do frame: displayMetrics pode divergir da superfície
+        // capturada em alguns aparelhos/versões do Android.
+        val width = image.width
+        val height = image.height
+        require(width > 0 && height > 0) { "A captura retornou uma imagem vazia." }
+        val plane = image.planes.firstOrNull()
+            ?: error("A captura não retornou dados de imagem.")
+        val rowPadding = plane.rowStride - plane.pixelStride * width
+        val paddedWidth = width + (rowPadding / plane.pixelStride).coerceAtLeast(0)
+        val padded = Bitmap.createBitmap(paddedWidth, height, Bitmap.Config.ARGB_8888)
+        try {
+            padded.copyPixelsFromBuffer(plane.buffer)
+            return Bitmap.createBitmap(padded, 0, 0, width, height).also {
+                if (screenW != width || screenH != height) {
+                    Log.w(TAG, "Dimensão da captura ajustada: ${screenW}x${screenH} -> ${width}x${height}")
+                    screenW = width
+                    screenH = height
+                }
+            }
+        } finally {
+            padded.recycle()
+        }
     }
 
     private fun cropBitmap(bmp: Bitmap, rect: RectF): Bitmap {
@@ -628,8 +669,9 @@ class ScreenReaderService : Service() {
         grayscale: Boolean = false,
         contrast: Float = if (grayscale) 1.32f else 1.22f
     ): Bitmap {
-        val maxDimension = 2800f
-        val scale = minOf(2.2f, maxDimension / maxOf(source.width, source.height).toFloat()).coerceAtLeast(1.0f)
+        // Limite de memória adequado a aparelhos de entrada (ex.: Galaxy A04e).
+        val maxDimension = 2200f
+        val scale = minOf(1.6f, maxDimension / maxOf(source.width, source.height).toFloat()).coerceAtLeast(1.0f)
         val w = (source.width * scale).toInt().coerceAtLeast(1)
         val h = (source.height * scale).toInt().coerceAtLeast(1)
         val out = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
@@ -730,8 +772,9 @@ class ScreenReaderService : Service() {
                 }
                 identifySourceLanguage(best) { detected ->
                     sourceLang = detected
-                    Log.d(TAG, "Modo automático: idioma=$sourceLang; texto=$best")
-                    readTextWithLanguage(bitmap)
+                    Log.d(TAG, "Modo automático: idioma=$sourceLang; texto OCR=${best.length} caracteres")
+                    // O texto já foi reconhecido: não execute novamente quatro passagens de OCR.
+                    translate(best)
                 }
                 return
             }
@@ -769,8 +812,8 @@ class ScreenReaderService : Service() {
 
         val enhanced = prepareBitmapForOcr(bitmap, false, 1.30f)
         val grayscale = prepareBitmapForOcr(bitmap, true, 1.42f)
-        val highContrast = prepareBitmapForOcr(bitmap, true, 1.62f)
-        val candidates = listOf(bitmap, enhanced, grayscale, highContrast)
+        // Três tentativas dão robustez sem quadruplicar o consumo de memória.
+        val candidates = listOf(bitmap, enhanced, grayscale)
 
         fun score(text: String): Int {
             if (text.isBlank()) return Int.MIN_VALUE
@@ -806,9 +849,8 @@ class ScreenReaderService : Service() {
 
         fun finish(bestText: String) {
             recognizer.close()
-            enhanced.recycle()
-            grayscale.recycle()
-            highContrast.recycle()
+            if (!enhanced.isRecycled) enhanced.recycle()
+            if (!grayscale.isRecycled) grayscale.recycle()
             val finalText = bestText.trim()
             Log.d(TAG, "OCR selecionado ($sourceLang): $finalText")
             if (finalText.isEmpty()) say("Não encontrei texto legível. Tente selecionar uma área maior ou mais nítida.")

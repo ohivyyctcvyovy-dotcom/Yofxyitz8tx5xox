@@ -746,12 +746,10 @@ class ScreenReaderService : Service() {
     // Identifica o idioma pelos caracteres e, quando necessário, pelo identificador
     // de idioma do ML Kit. A análise acontece localmente no aparelho.
     private fun identifySourceLanguage(text: String, callback: (String) -> Unit) {
-        var han = 0
         var kana = 0
         var hangul = 0
         for (ch in text) {
             val cp = ch.code
-            if (cp in 0x3400..0x4DBF || cp in 0x4E00..0x9FFF) han++
             if (cp in 0x3040..0x30FF || cp in 0x31F0..0x31FF) kana++
             if (cp in 0x1100..0x11FF || cp in 0x3130..0x318F || cp in 0xAC00..0xD7AF) hangul++
         }

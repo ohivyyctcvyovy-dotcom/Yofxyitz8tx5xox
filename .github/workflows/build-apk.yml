@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feature/visao-inteligente-offline
+      - integracao-tradutor-nativo
     paths:
       - 'app/**'
       - '.github/workflows/build-apk.yml'

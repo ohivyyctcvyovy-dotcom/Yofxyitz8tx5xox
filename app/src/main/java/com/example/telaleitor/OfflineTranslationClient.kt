@@ -41,15 +41,65 @@ class OfflineTranslationClient(context: Context) {
                     val englishInstall = NativeOfflineTranslator.installLanguage("en")
                     if (englishInstall != "OK") error(englishInstall.removePrefix("ERROR:"))
                 }
-                val translated = NativeOfflineTranslator.translate(source, text)
-                if (translated.startsWith("ERROR:")) error(translated.removePrefix("ERROR:"))
+                // O modelo SLIMT pode falhar com blocos muito longos. Traduzimos
+                // em partes menores, preservando a ordem e os limites das frases.
+                val chunks = splitForTranslation(text)
+                val translated = chunks.map { chunk ->
+                    val part = NativeOfflineTranslator.translate(source, chunk)
+                    if (part.startsWith("ERROR:")) error(part.removePrefix("ERROR:"))
+                    if (part.isBlank()) error("O tradutor não retornou um trecho.")
+                    part.trim()
+                }.joinToString(" ").trim()
                 if (translated.isBlank()) error("O tradutor não retornou texto.")
-                onSuccess(translated.trim())
+                onSuccess(translated)
             } catch (e: Exception) {
                 Log.e("AuroraSLIMT", "Falha na tradução offline", e)
                 onError("Falha no tradutor offline: ${e.localizedMessage ?: "tente novamente"}.")
             }
         }
+    }
+
+    private fun splitForTranslation(input: String, limit: Int = 450): List<String> {
+        val normalized = input.replace(Regex("[\\t\\r]+"), " ").trim()
+        if (normalized.length <= limit) return listOf(normalized)
+
+        val sentences = normalized.split(Regex("(?<=[.!?。！？；;])"))
+            .map { it.trim() }.filter { it.isNotEmpty() }
+        val chunks = mutableListOf<String>()
+        val current = StringBuilder()
+
+        fun flush() {
+            if (current.isNotEmpty()) {
+                chunks.add(current.toString().trim())
+                current.setLength(0)
+            }
+        }
+
+        for (sentence in sentences) {
+            if (sentence.length > limit) {
+                flush()
+                var offset = 0
+                while (offset < sentence.length) {
+                    var end = (offset + limit).coerceAtMost(sentence.length)
+                    if (end < sentence.length) {
+                        val boundary = sentence.lastIndexOf(' ', end - 1)
+                        if (boundary > offset + limit / 2) end = boundary
+                    }
+                    if (end < sentence.length && end > offset && sentence[end - 1].isHighSurrogate()) end--
+                    if (end <= offset) end = (offset + limit).coerceAtMost(sentence.length)
+                    chunks.add(sentence.substring(offset, end).trim())
+                    offset = end
+                    while (offset < sentence.length && sentence[offset].isWhitespace()) offset++
+                }
+            } else {
+                val separator = if (current.isNotEmpty()) 1 else 0
+                if (current.length + separator + sentence.length > limit) flush()
+                if (current.isNotEmpty()) current.append(' ')
+                current.append(sentence)
+            }
+        }
+        flush()
+        return chunks.filter { it.isNotBlank() }
     }
 
     private fun normalizeLanguage(code: String?): String? = when (code?.lowercase()) {

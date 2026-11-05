@@ -30,7 +30,7 @@ jobs:
         uses: android-actions/setup-android@v3
         with:
           cmdline-tools-version: 'latest'
-          packages: ''
+          packages: 'platform-tools'
       - name: Instalar Android NDK 28
         run: yes | sdkmanager --licenses && sdkmanager --install "ndk;28.0.13004108"
       - name: Compilar motor SLIMT nativo

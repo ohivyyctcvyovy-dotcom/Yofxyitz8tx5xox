@@ -1099,8 +1099,8 @@ class ScreenReaderService : Service() {
 
             val spoken = message
                 .replace("\r\n", "\n")
-                .replace(Regex("(?m)^\s*[-–—]+\s*$"), " ")
-                .replace(Regex("(?<![\p{L}\p{N}])[-–—](?![\p{L}\p{N}])"), " ")
+                .replace(Regex("(?m)^\\s*[-–—]+\\s*$"), " ")
+                .replace(Regex("(?<![\\p{L}\\p{N}])[-–—](?![\\p{L}\\p{N}])"), " ")
                 .replace(Regex("[–—]"), ", ")
                 .replace(Regex("[\\\\t ]+"), " ")
                 .replace(Regex("\\\\n+"), " ")

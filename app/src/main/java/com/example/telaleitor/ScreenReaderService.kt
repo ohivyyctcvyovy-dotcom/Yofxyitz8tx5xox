@@ -1102,8 +1102,8 @@ class ScreenReaderService : Service() {
                 .replace(Regex("(?m)^\\s*[-–—]+\\s*$"), " ")
                 .replace(Regex("(?<![\\p{L}\\p{N}])[-–—](?![\\p{L}\\p{N}])"), " ")
                 .replace(Regex("[–—]"), ", ")
-                .replace(Regex("[\\\\t ]+"), " ")
-                .replace(Regex("\\\\n+"), " ")
+                .replace(Regex("[\\t ]+"), " ")
+                .replace(Regex("\\n+"), " ")
                 .replace(Regex(" +([,.;:!?])"), "$1")
                 .trim()
             if (spoken.isEmpty()) return@post

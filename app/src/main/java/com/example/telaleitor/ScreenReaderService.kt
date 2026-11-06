@@ -1082,7 +1082,7 @@ class ScreenReaderService : Service() {
 
     private fun configurePortugueseVoice() {
         val engine = tts ?: return
-        engine.setLanguage(Locale("pt", "BR")); engine.setSpeechRate(1.18f); engine.setPitch(1.0f)
+        engine.setLanguage(Locale("pt", "BR")); engine.setSpeechRate(1.0f); engine.setPitch(1.0f)
         val brazilianVoice = engine.voices
             ?.filter { it.locale.language == "pt" && it.locale.country.equals("BR", true) }
             ?.sortedWith(compareByDescending<android.speech.tts.Voice> { it.quality }.thenBy { it.isNetworkConnectionRequired })
@@ -1099,8 +1099,8 @@ class ScreenReaderService : Service() {
 
             val spoken = message
                 .replace("\r\n", "\n")
-                .replace(Regex("(?m)^\\\\s*[-–—]+\\\\s*$"), " ")
-                .replace(Regex("(?<![\\\\p{L}\\\\p{N}])[-–—](?![\\\\p{L}\\\\p{N}])"), " ")
+                .replace(Regex("(?m)^\s*[-–—]+\s*$"), " ")
+                .replace(Regex("(?<![\p{L}\p{N}])[-–—](?![\p{L}\p{N}])"), " ")
                 .replace(Regex("[–—]"), ", ")
                 .replace(Regex("[\\\\t ]+"), " ")
                 .replace(Regex("\\\\n+"), " ")

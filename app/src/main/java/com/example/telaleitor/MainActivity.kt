@@ -24,7 +24,8 @@ class MainActivity : AppCompatActivity() {
             if (granted) launchScreenCapture()
             else {
                 liveVoiceRequested = false
-                Toast.makeText(this, "Permissão de áudio não concedida. A leitura de tela continua disponível.", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Sem a permissão de áudio, a tradução de vídeo não poderá ser ativada pelo botão flutuante.", Toast.LENGTH_LONG).show()
+                launchScreenCapture()
             }
         }
 
@@ -72,14 +73,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun startReading() {
         liveVoiceRequested = findViewById<CheckBox>(R.id.cbLiveVoice).isChecked
-        if (liveVoiceRequested) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            if (liveVoiceRequested) {
                 Toast.makeText(this, "A captura de áudio interno exige Android 10 ou superior.", Toast.LENGTH_LONG).show()
                 liveVoiceRequested = false
-            } else if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                return
             }
+            launchScreenCapture()
+            return
+        }
+        // A permissão é solicitada na ativação para que o comando "Traduzir vídeo"
+        // também possa ser usado depois, diretamente no menu flutuante.
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            audioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
+            return
         }
         launchScreenCapture()
     }

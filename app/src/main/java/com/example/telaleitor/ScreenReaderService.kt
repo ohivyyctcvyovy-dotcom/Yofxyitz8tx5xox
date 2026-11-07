@@ -315,8 +315,8 @@ class ScreenReaderService : Service() {
             toast("A tradução de vídeo já está ativa.")
             return
         }
-        lateinit var translator: LiveVoiceTranslator
-        translator = LiveVoiceTranslator(
+        var translatorRef: LiveVoiceTranslator? = null
+        val translator = LiveVoiceTranslator(
             filesDir = filesDir,
             projection = activeProjection,
             onTranscript = { recognizedText, language ->
@@ -333,13 +333,15 @@ class ScreenReaderService : Service() {
                 Log.e(TAG, "Tradução de vídeo interrompida: $message")
                 toast(message)
                 handler.post {
-                    if (liveVoiceTranslator === translator) {
-                        translator.stop()
+                    val failedTranslator = translatorRef
+                    if (failedTranslator != null && liveVoiceTranslator === failedTranslator) {
+                        failedTranslator.stop()
                         liveVoiceTranslator = null
                     }
                 }
             }
         )
+        translatorRef = translator
         liveVoiceTranslator = translator
         translator.start()
         toast("Preparando tradução do vídeo. Deixe o vídeo tocando; o áudio precisa permitir captura interna.")

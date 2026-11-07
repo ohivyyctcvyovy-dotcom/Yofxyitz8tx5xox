@@ -338,14 +338,22 @@ class ScreenReaderService : Service() {
                     if (failedTranslator != null && liveVoiceTranslator === failedTranslator) {
                         failedTranslator.stop()
                         liveVoiceTranslator = null
+                        updateFloatingPlayButton()
                     }
                 }
             }
         )
         translatorRef = translator
         liveVoiceTranslator = translator
+        updateFloatingPlayButton()
         translator.start()
         toast("Preparando tradução do vídeo. Deixe o vídeo tocando; o áudio precisa permitir captura interna.")
+    }
+
+    private fun updateFloatingPlayButton() {
+        handler.post {
+            floatingPlayButton?.text = if (liveVoiceTranslator == null) "▶" else "■"
+        }
     }
 
     private fun stopLiveVoiceTranslation() {
@@ -356,6 +364,7 @@ class ScreenReaderService : Service() {
         }
         translator.stop()
         liveVoiceTranslator = null
+        updateFloatingPlayButton()
         lastLiveSpoken = ""
         tts?.stop()
         toast("Tradução de vídeo desligada.")
@@ -512,10 +521,13 @@ class ScreenReaderService : Service() {
                 setStroke(2, accent)
             }
             elevation = 12f
-            contentDescription = "Play. Ler a tela inteira em voz alta em português."
+            text = if (liveVoiceTranslator == null) "▶" else "■"
+            contentDescription = "Play. Iniciar ou parar a tradução da fala do vídeo para português."
             setOnClickListener {
                 removeFloatingMenu()
-                readWholeScreen()
+                if (liveVoiceTranslator == null) startLiveVoiceTranslation()
+                else stopLiveVoiceTranslation()
+                text = if (liveVoiceTranslator == null) "▶" else "■"
             }
         }
         try {

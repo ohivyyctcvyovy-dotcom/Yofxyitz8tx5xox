@@ -86,6 +86,7 @@ class ScreenReaderService : Service() {
     private var virtualDisplay: VirtualDisplay? = null
     private var overlay: SelectionView? = null
     private var floatingButton: TextView? = null
+    private var floatingPlayButton: TextView? = null
     private var floatingExpanded = false
     private var resultPanel: View? = null
     private var sourceLang: String = LANG_AUTO
@@ -262,7 +263,7 @@ class ScreenReaderService : Service() {
 
         removeOverlay()
         removeFloatingMenu()
-        floatingButton?.visibility = View.VISIBLE
+        setFloatingControlsVisible(true)
         floatingButton?.let { button ->
             val params = button.layoutParams as? WindowManager.LayoutParams
             if (params != null) {
@@ -468,8 +469,56 @@ class ScreenReaderService : Service() {
                 else -> true
             }
         }
-        try { wm.addView(button, params); floatingButton = button }
-        catch (e: Exception) { Log.e(TAG, "Não foi possível mostrar o botão flutuante", e) }
+        try {
+            wm.addView(button, params)
+            floatingButton = button
+            showFloatingPlayButton(params)
+        } catch (e: Exception) {
+            Log.e(TAG, "Não foi possível mostrar o botão flutuante", e)
+        }
+    }
+
+    // Botão ▶ separado: inicia a leitura OCR da tela inteira com voz em português.
+    private fun showFloatingPlayButton(anchor: WindowManager.LayoutParams) {
+        if (floatingPlayButton != null || !Settings.canDrawOverlays(this)) return
+        val accent = android.graphics.Color.rgb(255, 51, 79)
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+        val params = WindowManager.LayoutParams(54, 54, type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT).apply {
+                gravity = Gravity.TOP or Gravity.START
+                x = (anchor.x + 62).coerceIn(0, (resources.displayMetrics.widthPixels - 54).coerceAtLeast(0))
+                y = anchor.y
+            }
+        val play = TextView(this).apply {
+            text = "▶"
+            textSize = 23f
+            setTextColor(android.graphics.Color.WHITE)
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(android.graphics.Color.rgb(15, 15, 15))
+                cornerRadius = 100f
+                setStroke(2, accent)
+            }
+            elevation = 12f
+            contentDescription = "Play. Ler a tela inteira em voz alta em português."
+            setOnClickListener {
+                removeFloatingMenu()
+                readWholeScreen()
+            }
+        }
+        try {
+            wm.addView(play, params)
+            floatingPlayButton = play
+        } catch (e: Exception) {
+            Log.e(TAG, "Não foi possível mostrar o botão Play", e)
+        }
+    }
+
+    private fun setFloatingControlsVisible(visible: Boolean) {
+        floatingButton?.visibility = if (visible) View.VISIBLE else View.GONE
+        floatingPlayButton?.visibility = if (visible) View.VISIBLE else View.GONE
     }
 
     private fun showFloatingMenu(anchor: WindowManager.LayoutParams) {
@@ -556,12 +605,14 @@ class ScreenReaderService : Service() {
         removeFloatingMenu()
         floatingButton?.let { try { wm.removeView(it) } catch(_:Exception) {} }
         floatingButton=null
+        floatingPlayButton?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+        floatingPlayButton=null
     }
 
     private fun showSelection() {
         if (overlay != null) return
         removeFloatingMenu()
-        floatingButton?.visibility = View.GONE
+        setFloatingControlsVisible(false)
         overlay = SelectionView(this) { rect ->
             val selectionView = overlay
             val captureRect = if (rect != null && selectionView != null &&
@@ -577,7 +628,7 @@ class ScreenReaderService : Service() {
             if (captureRect != null) {
                 handler.postDelayed({ grabFrame(captureRect, 0) }, 350)
             } else {
-                floatingButton?.visibility = View.VISIBLE
+                setFloatingControlsVisible(true)
             }
         }
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -590,7 +641,7 @@ class ScreenReaderService : Service() {
         } catch (error: Exception) {
             Log.e(TAG, "Não foi possível abrir a seleção de texto", error)
             removeOverlay()
-            floatingButton?.visibility = View.VISIBLE
+            setFloatingControlsVisible(true)
             say("Não consegui abrir a seleção. Verifique a permissão de sobreposição do Aurora.")
         }
     }
@@ -602,7 +653,7 @@ class ScreenReaderService : Service() {
 
     private fun readWholeScreen() {
         if (projection == null) { say("A captura não está ativa. Inicie o leitor novamente."); return }
-        floatingButton?.visibility = View.GONE
+        setFloatingControlsVisible(false)
         handler.postDelayed({ grabWholeFrame(0) }, 180)
     }
 
@@ -613,7 +664,7 @@ class ScreenReaderService : Service() {
         if (image == null) {
             if (tries < 6) handler.postDelayed({ grabWholeFrame(tries + 1) }, 250)
             else {
-                floatingButton?.visibility = View.VISIBLE
+                setFloatingControlsVisible(true)
                 say("Não consegui capturar a tela. Tente novamente.")
             }
             return
@@ -622,20 +673,20 @@ class ScreenReaderService : Service() {
             imageToBitmap(image)
         } catch (error: Exception) {
             Log.e(TAG, "Falha ao converter a captura da tela em imagem", error)
-            floatingButton?.visibility = View.VISIBLE
+            setFloatingControlsVisible(true)
             say("A captura da tela veio em um formato inesperado. Feche e inicie o leitor novamente.")
             return
         } finally {
             image.close()
         }
-        floatingButton?.visibility = View.VISIBLE
+        setFloatingControlsVisible(true)
         readText(full)
     }
 
     private fun grabFrame(rect: RectF, tries: Int) {
         val r = reader
         if (r == null) {
-            floatingButton?.visibility = View.VISIBLE
+            setFloatingControlsVisible(true)
             say("A captura não está ativa. Inicie o app de novo.")
             return
         }
@@ -643,7 +694,7 @@ class ScreenReaderService : Service() {
         if (image == null) {
             if (tries < 8) handler.postDelayed({ grabFrame(rect, tries + 1) }, 250)
             else {
-                floatingButton?.visibility = View.VISIBLE
+                setFloatingControlsVisible(true)
                 say("Não consegui capturar a tela.")
             }
             return
@@ -652,13 +703,13 @@ class ScreenReaderService : Service() {
             imageToBitmap(image)
         } catch (error: Exception) {
             Log.e(TAG, "Falha ao converter a área capturada", error)
-            floatingButton?.visibility = View.VISIBLE
+            setFloatingControlsVisible(true)
             say("Não consegui processar a imagem capturada. Tente selecionar a área novamente.")
             return
         } finally {
             image.close()
         }
-        floatingButton?.visibility = View.VISIBLE
+        setFloatingControlsVisible(true)
         val selected = try {
             cropBitmap(full, rect)
         } catch (error: Exception) {

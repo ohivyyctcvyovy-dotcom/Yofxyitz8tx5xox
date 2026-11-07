@@ -17,6 +17,9 @@ import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.sqrt
 
@@ -35,13 +38,20 @@ class LiveVoiceTranslator(
     companion object {
         private const val TAG = "AuroraLiveVoice"
         private const val SAMPLE_RATE = 16000
-        private const val CHUNK_SECONDS = 6
+        private const val CHUNK_SECONDS = 3
         private const val MODEL_BASE =
             "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/"
     }
 
     private val running = AtomicBoolean(false)
     private val worker = Executors.newSingleThreadExecutor()
+    // Reconhecimento separado da captura para evitar bloquear a leitura do áudio.
+    // A fila limitada descarta trechos antigos se o aparelho não acompanhar o vídeo.
+    private val recognitionWorker = ThreadPoolExecutor(
+        1, 1, 0L, TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue<Runnable>(2),
+        ThreadPoolExecutor.DiscardOldestPolicy()
+    )
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var recognizer: OfflineRecognizer? = null
 
@@ -175,7 +185,18 @@ class LiveVoiceTranslator(
                     offset += copy
                 }
                 if (filled == chunk.size) {
-                    if (running.get()) recognizeChunk(chunk)
+                    if (running.get()) {
+                        val completedChunk = chunk.copyOf()
+                        recognitionWorker.execute {
+                            if (running.get()) {
+                                try {
+                                    recognizeChunk(completedChunk)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Falha ao reconhecer trecho de áudio", e)
+                                }
+                            }
+                        }
+                    }
                     filled = 0
                 }
             }
@@ -226,5 +247,6 @@ class LiveVoiceTranslator(
         running.set(false)
         try { recorder?.stop() } catch (_: Exception) {}
         recorder = null
+        recognitionWorker.shutdownNow()
     }
 }

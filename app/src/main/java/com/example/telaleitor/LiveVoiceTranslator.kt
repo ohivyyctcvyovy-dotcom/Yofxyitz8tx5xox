@@ -29,6 +29,7 @@ class LiveVoiceTranslator(
     private val filesDir: File,
     private val projection: MediaProjection,
     private val onTranscript: (text: String, language: String) -> Unit,
+    private val onStatus: (String) -> Unit,
     private val onError: (String) -> Unit
 ) {
     companion object {
@@ -92,7 +93,7 @@ class LiveVoiceTranslator(
     }
 
     private fun download(address: String, destination: File) {
-        onError("Baixando o modelo de voz offline (aprox. 228 MB) pela primeira vez. Mantenha a internet ativa.")
+        onStatus("Baixando o modelo de voz offline (aprox. 228 MB) pela primeira vez. Mantenha a internet ativa.")
         val temp = File(destination.parentFile, destination.name + ".part")
         val connection = (URL(address).openConnection() as HttpURLConnection).apply {
             connectTimeout = 20000
@@ -130,6 +131,7 @@ class LiveVoiceTranslator(
         val captureConfig = AudioPlaybackCaptureConfiguration.Builder(projection)
             .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
             .addMatchingUsage(AudioAttributes.USAGE_GAME)
+            .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
             .build()
         val format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
@@ -140,7 +142,9 @@ class LiveVoiceTranslator(
             SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
         if (minBuffer <= 0) error("O Android não disponibilizou um buffer de áudio válido.")
-        val bufferBytes = maxOf(minBuffer * 2, SAMPLE_RATE * 2 * CHUNK_SECONDS)
+        // Reserva espaço para o reconhecedor processar um trecho sem descartar
+        // imediatamente o áudio que continua chegando do vídeo.
+        val bufferBytes = maxOf(minBuffer * 2, SAMPLE_RATE * 2 * CHUNK_SECONDS * 2)
         val audioRecord = AudioRecord.Builder()
             .setAudioFormat(format)
             .setBufferSizeInBytes(bufferBytes)
@@ -158,6 +162,7 @@ class LiveVoiceTranslator(
         val chunk = ShortArray(chunkSamples)
         var filled = 0
         audioRecord.startRecording()
+        onStatus("Áudio interno conectado. Aguardando fala do vídeo…")
         try {
             while (running.get()) {
                 val count = audioRecord.read(shortBuffer, 0, shortBuffer.size, AudioRecord.READ_BLOCKING)
@@ -198,11 +203,19 @@ class LiveVoiceTranslator(
             localRecognizer.decode(stream)
             val result = localRecognizer.getResult(stream)
             val text = result.text.trim()
-            val language = result.lang.trim().lowercase()
+            val rawLanguage = result.lang.trim().lowercase()
+            val language = when (rawLanguage) {
+                "english" -> "en"
+                "japanese" -> "ja"
+                "korean" -> "ko"
+                "chinese", "cantonese", "yue" -> "zh"
+                else -> rawLanguage.substringBefore('-')
+            }
             if (text.length >= 2 && language in setOf("en", "ja", "ko", "zh")) {
+                Log.d(TAG, "Trecho reconhecido ($language): $text")
                 onTranscript(text, language)
             } else if (text.length >= 2) {
-                Log.d(TAG, "Trecho reconhecido sem idioma compatível: $language")
+                Log.d(TAG, "Trecho reconhecido sem idioma compatível: $rawLanguage")
             }
         } finally {
             stream.release()

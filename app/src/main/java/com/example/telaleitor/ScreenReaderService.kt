@@ -444,6 +444,15 @@ class ScreenReaderService : Service() {
                         params.x = (startX + dx).coerceIn(0, (resources.displayMetrics.widthPixels - 54).coerceAtLeast(0))
                         params.y = (startY + dy).coerceIn(0, (resources.displayMetrics.heightPixels - 54).coerceAtLeast(0))
                         try { wm.updateViewLayout(view, params) } catch (_: Exception) {}
+                        floatingPlayButton?.let { play ->
+                            val playParams = play.layoutParams as? WindowManager.LayoutParams
+                            if (playParams != null) {
+                                playParams.x = if (params.x + 116 <= resources.displayMetrics.widthPixels) params.x + 62
+                                    else (params.x - 62).coerceAtLeast(0)
+                                playParams.y = params.y
+                                try { wm.updateViewLayout(play, playParams) } catch (_: Exception) {}
+                            }
+                        }
                     }
                     true
                 }
@@ -488,7 +497,8 @@ class ScreenReaderService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT).apply {
                 gravity = Gravity.TOP or Gravity.START
-                x = (anchor.x + 62).coerceIn(0, (resources.displayMetrics.widthPixels - 54).coerceAtLeast(0))
+                x = if (anchor.x + 116 <= resources.displayMetrics.widthPixels) anchor.x + 62
+                    else (anchor.x - 62).coerceAtLeast(0)
                 y = anchor.y
             }
         val play = TextView(this).apply {

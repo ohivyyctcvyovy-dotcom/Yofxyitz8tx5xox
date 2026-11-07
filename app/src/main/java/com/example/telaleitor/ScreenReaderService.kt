@@ -64,6 +64,7 @@ class ScreenReaderService : Service() {
         const val EXTRA_RESULT_CODE = "resultCode"
         const val EXTRA_DATA = "data"
         const val EXTRA_LANG = "lang"
+        const val EXTRA_LIVE_VOICE = "liveVoice"
         const val LANG_AUTO = "auto"
         const val LANG_JAPANESE = "ja"
         const val LANG_CHINESE = "zh"
@@ -90,6 +91,8 @@ class ScreenReaderService : Service() {
     private var autoDetectEnabled: Boolean = true
     private var tts: TextToSpeech? = null
     private var ttsReady = false
+    private var liveVoiceTranslator: LiveVoiceTranslator? = null
+    private var lastLiveSpoken = ""
     private var screenW = 0
     private var screenH = 0
     private var selectionModeVision = false
@@ -156,6 +159,7 @@ class ScreenReaderService : Service() {
                 if (Build.VERSION.SDK_INT >= 34) p.registerCallback(projectionCallback, handler)
                 setupCapture()
                 showFloatingButton()
+                if (intent.getBooleanExtra(EXTRA_LIVE_VOICE, false)) startLiveVoiceTranslation()
             }
             ACTION_SELECT -> {
                 if (projection == null) toast("Inicie a leitura pelo app primeiro")
@@ -174,6 +178,8 @@ class ScreenReaderService : Service() {
         removeResultPanel()
         displayManager?.unregisterDisplayListener(displayListener)
         handler.removeCallbacks(rotationRefresh)
+        liveVoiceTranslator?.stop()
+        liveVoiceTranslator = null
         releaseCapture()
         tts?.stop()
         tts?.shutdown()
@@ -274,6 +280,8 @@ class ScreenReaderService : Service() {
     }
 
     private fun releaseCapture() {
+        liveVoiceTranslator?.stop()
+        liveVoiceTranslator = null
         virtualDisplay?.release()
         virtualDisplay = null
         reader?.close()
@@ -283,6 +291,61 @@ class ScreenReaderService : Service() {
         if (p != null) {
             if (Build.VERSION.SDK_INT >= 34) try { p.unregisterCallback(projectionCallback) } catch (_: Exception) {}
             p.stop()
+        }
+    }
+
+    private fun startLiveVoiceTranslation() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            toast("A tradução por áudio interno exige Android 10 ou superior.")
+            return
+        }
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            toast("Conceda a permissão de áudio e inicie novamente.")
+            return
+        }
+        val activeProjection = projection ?: run {
+            toast("Inicie a captura de tela antes da tradução por voz.")
+            return
+        }
+        liveVoiceTranslator?.stop()
+        liveVoiceTranslator = LiveVoiceTranslator(
+            filesDir = filesDir,
+            projection = activeProjection,
+            onTranscript = { recognizedText, language ->
+                Log.d(TAG, "Fala reconhecida ($language): $recognizedText")
+                OfflineTranslationClient(this).translate(
+                    text = recognizedText,
+                    sourceLanguage = language,
+                    onSuccess = { translated -> sayLive(translated) },
+                    onError = { message -> toast(message) }
+                )
+            },
+            onError = { message -> toast(message) }
+        ).also { it.start() }
+        toast("Tradução de voz ao vivo ativada. O vídeo precisa permitir captura de áudio.")
+    }
+
+    // A fila mantém as frases na ordem e não interrompe a fala anterior a cada trecho.
+    private fun sayLive(message: String) {
+        handler.post {
+            val engine = tts
+            if (!ttsReady || engine == null) {
+                toast("A voz em português ainda está iniciando.")
+                return@post
+            }
+            val spoken = message
+                .replace(Regex("[\\t\\r\\n]+"), " ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+            if (spoken.length < 2 || spoken == lastLiveSpoken) return@post
+            lastLiveSpoken = spoken
+            val result = engine.speak(
+                spoken,
+                TextToSpeech.QUEUE_ADD,
+                null,
+                "aurora_live_${System.currentTimeMillis()}"
+            )
+            if (result == TextToSpeech.ERROR) Log.e(TAG, "Falha ao enfileirar a tradução de voz ao vivo")
         }
     }
 

@@ -40,7 +40,7 @@ class LiveVoiceTranslator(
         private const val SAMPLE_RATE = 16000
         private const val CHUNK_SECONDS = 3
         private const val MODEL_BASE =
-            "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/"
+            "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main"
     }
 
     private val running = AtomicBoolean(false)

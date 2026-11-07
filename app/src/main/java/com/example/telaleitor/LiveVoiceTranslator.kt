@@ -39,8 +39,9 @@ class LiveVoiceTranslator(
         private const val TAG = "AuroraLiveVoice"
         private const val SAMPLE_RATE = 16000
         private const val CHUNK_SECONDS = 3
+        // Revisão fixa para não depender de alterações futuras no branch "main".
         private const val MODEL_BASE =
-            "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main"
+            "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07"
     }
 
     private val running = AtomicBoolean(false)
@@ -114,17 +115,23 @@ class LiveVoiceTranslator(
         try {
             connection.connect()
             if (connection.responseCode !in 200..299) {
-                error("Download do modelo de voz falhou: HTTP ${connection.responseCode}")
+                error("Download do modelo de voz falhou: HTTP ${connection.responseCode}. Endereço: $address")
             }
             connection.inputStream.use { input ->
                 FileOutputStream(temp).use { output ->
                     val buffer = ByteArray(1024 * 1024)
+                    var downloaded = 0L
                     while (running.get()) {
                         val count = input.read(buffer)
                         if (count < 0) break
                         output.write(buffer, 0, count)
+                        downloaded += count
                     }
                     output.fd.sync()
+                    val expected = connection.contentLengthLong
+                    if (running.get() && expected > 0L && downloaded != expected) {
+                        error("Download incompleto do modelo de voz: $downloaded de $expected bytes.")
+                    }
                 }
             }
             if (!running.get()) return
@@ -176,7 +183,13 @@ class LiveVoiceTranslator(
         try {
             while (running.get()) {
                 val count = audioRecord.read(shortBuffer, 0, shortBuffer.size, AudioRecord.READ_BLOCKING)
-                if (count <= 0) continue
+                if (count == AudioRecord.ERROR_DEAD_OBJECT) {
+                    error("O Android encerrou a captura de áudio. Reinicie a leitura e tente novamente.")
+                }
+                if (count < 0) {
+                    error("Falha ao ler o áudio interno (código $count).")
+                }
+                if (count == 0) continue
                 var offset = 0
                 while (offset < count && filled < chunk.size) {
                     val copy = minOf(count - offset, chunk.size - filled)
@@ -187,14 +200,18 @@ class LiveVoiceTranslator(
                 if (filled == chunk.size) {
                     if (running.get()) {
                         val completedChunk = chunk.copyOf()
-                        recognitionWorker.execute {
-                            if (running.get()) {
-                                try {
-                                    recognizeChunk(completedChunk)
-                                } catch (e: Exception) {
-                                    Log.e(TAG, "Falha ao reconhecer trecho de áudio", e)
+                        try {
+                            recognitionWorker.execute {
+                                if (running.get()) {
+                                    try {
+                                        recognizeChunk(completedChunk)
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Falha ao reconhecer trecho de áudio", e)
+                                    }
                                 }
                             }
+                        } catch (_: java.util.concurrent.RejectedExecutionException) {
+                            // O usuário pode ter parado a leitura exatamente neste trecho.
                         }
                     }
                     filled = 0
@@ -248,5 +265,6 @@ class LiveVoiceTranslator(
         try { recorder?.stop() } catch (_: Exception) {}
         recorder = null
         recognitionWorker.shutdownNow()
+        worker.shutdownNow()
     }
 }

@@ -44,7 +44,7 @@ class OfflineTranslationClient(context: Context) {
                 if (targetInstall != "OK") error(targetInstall.removePrefix("ERROR:"))
                 // O modelo SLIMT pode falhar com blocos muito longos. Traduzimos
                 // em partes menores, preservando a ordem e os limites das frases.
-                val chunks = splitForTranslation(text)
+                val chunks = splitForTranslation(text, source)
                 val translated = chunks.map { chunk ->
                     val part = NativeOfflineTranslator.translate(source, chunk)
                     if (part.startsWith("ERROR:")) error(part.removePrefix("ERROR:"))
@@ -63,8 +63,16 @@ class OfflineTranslationClient(context: Context) {
         }
     }
 
-    private fun splitForTranslation(input: String, limit: Int = 450): List<String> {
-        val normalized = input.replace(Regex("[\\t\\r]+"), " ").trim()
+    // Trechos menores preservam mais contexto útil por frase e evitam
+    // cortar japonês/chinês em posições arbitrárias quando não há espaços.
+    private fun splitForTranslation(input: String, language: String): List<String> {
+        val usesSpaces = language == "en" || language == "ko"
+        val limit = if (language == "ja" || language == "zh") 180 else 240
+        val normalized = input
+            .replace(Regex("[\\t\\r]+"), " ")
+            .replace(Regex("\\n+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
         if (normalized.length <= limit) return listOf(normalized)
 
         val sentences = normalized.split(Regex("(?<=[.!?。！？；;])"))
@@ -79,26 +87,35 @@ class OfflineTranslationClient(context: Context) {
             }
         }
 
+        fun splitLongSentence(sentence: String) {
+            var offset = 0
+            while (offset < sentence.length) {
+                var end = (offset + limit).coerceAtMost(sentence.length)
+                if (end < sentence.length) {
+                    val boundary = if (usesSpaces) {
+                        sentence.lastIndexOf(' ', end - 1)
+                    } else {
+                        sentence.lastIndexOfAny(charArrayOf('、', '，', ',', '；', ':', '：', '。', '！', '？'), end - 1)
+                    }
+                    if (boundary > offset + limit / 2) end = boundary + 1
+                    if (end < sentence.length && end > offset && sentence[end - 1].isHighSurrogate()) end--
+                }
+                if (end <= offset) end = (offset + limit).coerceAtMost(sentence.length)
+                val part = sentence.substring(offset, end).trim()
+                if (part.isNotEmpty()) chunks.add(part)
+                offset = end
+                while (offset < sentence.length && sentence[offset].isWhitespace()) offset++
+            }
+        }
+
         for (sentence in sentences) {
             if (sentence.length > limit) {
                 flush()
-                var offset = 0
-                while (offset < sentence.length) {
-                    var end = (offset + limit).coerceAtMost(sentence.length)
-                    if (end < sentence.length) {
-                        val boundary = sentence.lastIndexOf(' ', end - 1)
-                        if (boundary > offset + limit / 2) end = boundary
-                    }
-                    if (end < sentence.length && end > offset && sentence[end - 1].isHighSurrogate()) end--
-                    if (end <= offset) end = (offset + limit).coerceAtMost(sentence.length)
-                    chunks.add(sentence.substring(offset, end).trim())
-                    offset = end
-                    while (offset < sentence.length && sentence[offset].isWhitespace()) offset++
-                }
+                splitLongSentence(sentence)
             } else {
-                val separator = if (current.isNotEmpty()) 1 else 0
-                if (current.length + separator + sentence.length > limit) flush()
-                if (current.isNotEmpty()) current.append(' ')
+                val separator = if (current.isNotEmpty() && usesSpaces) 1 else 0
+                if (current.isNotEmpty() && current.length + separator + sentence.length > limit) flush()
+                if (current.isNotEmpty() && usesSpaces) current.append(' ')
                 current.append(sentence)
             }
         }

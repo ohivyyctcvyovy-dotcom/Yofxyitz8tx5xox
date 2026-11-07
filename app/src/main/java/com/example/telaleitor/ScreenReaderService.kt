@@ -61,6 +61,8 @@ class ScreenReaderService : Service() {
         const val ACTION_START = "com.example.telaleitor.START"
         const val ACTION_SELECT = "com.example.telaleitor.SELECT"
         const val ACTION_STOP = "com.example.telaleitor.STOP"
+        const val ACTION_LIVE_START = "com.example.telaleitor.LIVE_START"
+        const val ACTION_LIVE_STOP = "com.example.telaleitor.LIVE_STOP"
         const val EXTRA_RESULT_CODE = "resultCode"
         const val EXTRA_DATA = "data"
         const val EXTRA_LANG = "lang"
@@ -165,6 +167,8 @@ class ScreenReaderService : Service() {
                 if (projection == null) toast("Inicie a leitura pelo app primeiro")
                 else { selectionModeVision = false; showSelection() }
             }
+            ACTION_LIVE_START -> startLiveVoiceTranslation()
+            ACTION_LIVE_STOP -> stopLiveVoiceTranslation()
             ACTION_STOP -> stopSelf()
         }
         return START_NOT_STICKY
@@ -307,8 +311,12 @@ class ScreenReaderService : Service() {
             toast("Inicie a captura de tela antes da tradução por voz.")
             return
         }
-        liveVoiceTranslator?.stop()
-        liveVoiceTranslator = LiveVoiceTranslator(
+        if (liveVoiceTranslator != null) {
+            toast("A tradução de vídeo já está ativa.")
+            return
+        }
+        lateinit var translator: LiveVoiceTranslator
+        translator = LiveVoiceTranslator(
             filesDir = filesDir,
             projection = activeProjection,
             onTranscript = { recognizedText, language ->
@@ -320,9 +328,34 @@ class ScreenReaderService : Service() {
                     onError = { message -> toast(message) }
                 )
             },
-            onError = { message -> toast(message) }
-        ).also { it.start() }
-        toast("Tradução de voz ao vivo ativada. O vídeo precisa permitir captura de áudio.")
+            onStatus = { message -> toast(message) },
+            onError = { message ->
+                Log.e(TAG, "Tradução de vídeo interrompida: $message")
+                toast(message)
+                handler.post {
+                    if (liveVoiceTranslator === translator) {
+                        translator.stop()
+                        liveVoiceTranslator = null
+                    }
+                }
+            }
+        )
+        liveVoiceTranslator = translator
+        translator.start()
+        toast("Preparando tradução do vídeo. Deixe o vídeo tocando; o áudio precisa permitir captura interna.")
+    }
+
+    private fun stopLiveVoiceTranslation() {
+        val translator = liveVoiceTranslator
+        if (translator == null) {
+            toast("A tradução de vídeo já está desligada.")
+            return
+        }
+        translator.stop()
+        liveVoiceTranslator = null
+        lastLiveSpoken = ""
+        tts?.stop()
+        toast("Tradução de vídeo desligada.")
     }
 
     // A fila mantém as frases na ordem e não interrompe a fala anterior a cada trecho.
@@ -472,6 +505,21 @@ class ScreenReaderService : Service() {
             selectionModeVision = false
             showSelection()
         }
+        if (liveVoiceTranslator == null) {
+            action("▶  TRADUZIR VÍDEO", "Ativar tradução do áudio interno do vídeo para português") {
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                    toast("A tradução de vídeo exige Android 10 ou superior.")
+                } else if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    toast("Abra o Aurora 455, conceda a permissão de áudio e inicie o leitor novamente.")
+                } else {
+                    startLiveVoiceTranslation()
+                }
+            }
+        } else {
+            action("■  PARAR TRADUÇÃO DE VÍDEO", "Desligar a tradução de áudio do vídeo") {
+                stopLiveVoiceTranslation()
+            }
+        }
         action("◇  VISÃO", "Identificar elementos e texto em uma área") {
             selectionModeVision = true
             showSelection()
@@ -481,7 +529,7 @@ class ScreenReaderService : Service() {
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
         val menuWidth = 190
-        val menuHeight = 220
+        val menuHeight = 275
         val displayW = resources.displayMetrics.widthPixels
         val displayH = resources.displayMetrics.heightPixels
         val menuX = if (anchor.x + 54 + menuWidth > displayW) anchor.x - menuWidth + 4 else anchor.x

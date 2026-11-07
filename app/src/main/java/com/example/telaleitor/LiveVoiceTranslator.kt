@@ -77,7 +77,12 @@ class LiveVoiceTranslator(
                     decodingMethod = "greedy_search"
                 )
                 recognizer = OfflineRecognizer(config = config)
-                captureLoop()
+                try {
+                    captureLoop()
+                } finally {
+                    try { recognizer?.release() } catch (_: Exception) {}
+                    recognizer = null
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Falha na tradução de voz ao vivo", e)
                 onError(e.message ?: "Não foi possível iniciar o reconhecimento de voz offline.")
@@ -208,7 +213,5 @@ class LiveVoiceTranslator(
         running.set(false)
         try { recorder?.stop() } catch (_: Exception) {}
         recorder = null
-        try { recognizer?.release() } catch (_: Exception) {}
-        recognizer = null
     }
 }

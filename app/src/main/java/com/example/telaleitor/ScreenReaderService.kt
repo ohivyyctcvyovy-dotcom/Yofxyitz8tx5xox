@@ -96,6 +96,7 @@ class ScreenReaderService : Service() {
     private var ttsReady = false
     private var liveVoiceTranslator: LiveVoiceTranslator? = null
     private var lastLiveSpoken = ""
+    private val pendingLiveSpeech = mutableListOf<String>()
     private var screenW = 0
     private var screenH = 0
     private var selectionModeVision = false
@@ -138,7 +139,13 @@ class ScreenReaderService : Service() {
         createChannel()
         tts = TextToSpeech(this) { status ->
             ttsReady = status == TextToSpeech.SUCCESS
-            if (ttsReady) configurePortugueseVoice()
+            if (ttsReady) {
+                configurePortugueseVoice()
+                drainPendingLiveSpeech()
+            } else {
+                Log.e(TAG, "O mecanismo Android de voz não iniciou (status=$status)")
+                toast("A voz do Android não iniciou. Verifique se há uma voz em português instalada.")
+            }
         }
     }
 
@@ -185,6 +192,7 @@ class ScreenReaderService : Service() {
         handler.removeCallbacks(rotationRefresh)
         liveVoiceTranslator?.stop()
         liveVoiceTranslator = null
+        pendingLiveSpeech.clear()
         releaseCapture()
         tts?.stop()
         tts?.shutdown()
@@ -366,6 +374,7 @@ class ScreenReaderService : Service() {
         liveVoiceTranslator = null
         updateFloatingPlayButton()
         lastLiveSpoken = ""
+        pendingLiveSpeech.clear()
         tts?.stop()
         toast("Tradução de vídeo desligada.")
     }
@@ -373,24 +382,41 @@ class ScreenReaderService : Service() {
     // A fila mantém as frases na ordem e não interrompe a fala anterior a cada trecho.
     private fun sayLive(message: String) {
         handler.post {
-            val engine = tts
-            if (!ttsReady || engine == null) {
-                toast("A voz em português ainda está iniciando.")
-                return@post
-            }
             val spoken = message
                 .replace(Regex("[\\t\\r\\n]+"), " ")
                 .replace(Regex("\\s+"), " ")
                 .trim()
             if (spoken.length < 2 || spoken == lastLiveSpoken) return@post
-            lastLiveSpoken = spoken
+            val engine = tts
+            if (!ttsReady || engine == null) {
+                // Não descarte a primeira fala se o TTS do Android ainda estiver iniciando.
+                if (pendingLiveSpeech.size >= 8) pendingLiveSpeech.removeAt(0)
+                pendingLiveSpeech.add(spoken)
+                Log.w(TAG, "Voz ainda não pronta; tradução guardada na fila.")
+                return@post
+            }
             val result = engine.speak(
                 spoken,
                 TextToSpeech.QUEUE_ADD,
                 null,
                 "aurora_live_${System.currentTimeMillis()}"
             )
-            if (result == TextToSpeech.ERROR) Log.e(TAG, "Falha ao enfileirar a tradução de voz ao vivo")
+            if (result == TextToSpeech.ERROR) {
+                Log.e(TAG, "Falha ao enfileirar a tradução de voz ao vivo")
+                toast("O Android não conseguiu reproduzir a voz traduzida. Verifique o mecanismo de voz.")
+            } else {
+                lastLiveSpoken = spoken
+                Log.d(TAG, "Tradução enviada para voz: $spoken")
+            }
+        }
+    }
+
+    private fun drainPendingLiveSpeech() {
+        handler.post {
+            if (!ttsReady || tts == null || pendingLiveSpeech.isEmpty()) return@post
+            val waiting = pendingLiveSpeech.toList()
+            pendingLiveSpeech.clear()
+            waiting.forEach { sayLive(it) }
         }
     }
 

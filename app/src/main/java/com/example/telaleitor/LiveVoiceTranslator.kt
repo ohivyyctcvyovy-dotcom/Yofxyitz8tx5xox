@@ -271,7 +271,7 @@ class LiveVoiceTranslator(
                 "zh", "chinese", "yue", "cantonese" -> "zh"
                 else -> ""
             }
-            Log.d(TAG, "SenseVoice retornou idioma='$rawLanguage', texto=0 caracteres")
+            Log.d(TAG, "SenseVoice retornou idioma='$rawLanguage', texto=" + text.length + " caracteres")
             if (text.length >= 2 && language in setOf("en", "ja", "ko", "zh")) {
                 Log.d(TAG, "Trecho reconhecido ($language): $text")
                 onTranscript(text, language)

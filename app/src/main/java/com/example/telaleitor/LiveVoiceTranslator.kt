@@ -207,6 +207,7 @@ class LiveVoiceTranslator(
                                         recognizeChunk(completedChunk)
                                     } catch (e: Exception) {
                                         Log.e(TAG, "Falha ao reconhecer trecho de áudio", e)
+                                        onError("O reconhecimento de voz falhou: ${e.localizedMessage ?: "erro interno do SenseVoice"}.")
                                     }
                                 }
                             }
@@ -224,6 +225,9 @@ class LiveVoiceTranslator(
         }
     }
 
+    private var silentChunks = 0
+    private var silenceWarningShown = false
+
     private fun recognizeChunk(samples: ShortArray) {
         var energy = 0.0
         for (sample in samples) {
@@ -231,7 +235,17 @@ class LiveVoiceTranslator(
             energy += value * value
         }
         val rms = sqrt(energy / samples.size)
-        if (rms < 0.006) return
+        if (rms < 0.006) {
+            silentChunks++
+            Log.d(TAG, "Trecho sem áudio útil; RMS=$rms")
+            if (silentChunks >= 5 && !silenceWarningShown) {
+                silenceWarningShown = true
+                onStatus("Ainda não recebi som do vídeo. Confira se ele está tocando e se o aplicativo permite captura de áudio interno.")
+            }
+            return
+        }
+        silentChunks = 0
+        silenceWarningShown = false
 
         val localRecognizer = recognizer ?: return
         val floats = FloatArray(samples.size) { samples[it].toFloat() / 32768.0f }
@@ -241,19 +255,31 @@ class LiveVoiceTranslator(
             localRecognizer.decode(stream)
             val result = localRecognizer.getResult(stream)
             val text = result.text.trim()
+            // SenseVoice retorna tags especiais como "<|ja|>" e "<|zh|>",
+            // não os nomes "Japanese"/"Chinese". Remova os delimitadores
+            // antes de encaminhar o idioma ao tradutor SLIMT.
             val rawLanguage = result.lang.trim().lowercase()
-            val language = when (rawLanguage) {
-                "english" -> "en"
-                "japanese" -> "ja"
-                "korean" -> "ko"
-                "chinese", "cantonese", "yue" -> "zh"
-                else -> rawLanguage.substringBefore('-')
+            val languageTag = rawLanguage
+                .removePrefix("<|")
+                .removeSuffix("|>")
+                .substringBefore('-')
+                .trim()
+            val language = when (languageTag) {
+                "en", "english" -> "en"
+                "ja", "japanese" -> "ja"
+                "ko", "korean" -> "ko"
+                "zh", "chinese", "yue", "cantonese" -> "zh"
+                else -> ""
             }
+            Log.d(TAG, "SenseVoice retornou idioma='$rawLanguage', texto=0 caracteres")
             if (text.length >= 2 && language in setOf("en", "ja", "ko", "zh")) {
                 Log.d(TAG, "Trecho reconhecido ($language): $text")
                 onTranscript(text, language)
             } else if (text.length >= 2) {
-                Log.d(TAG, "Trecho reconhecido sem idioma compatível: $rawLanguage")
+                Log.w(TAG, "Trecho descartado: idioma SenseVoice não compatível: $rawLanguage")
+                onStatus("A fala foi reconhecida, mas o idioma retornado ($rawLanguage) não está mapeado para tradução.")
+            } else {
+                Log.d(TAG, "Nenhuma fala reconhecida neste trecho.")
             }
         } finally {
             stream.release()

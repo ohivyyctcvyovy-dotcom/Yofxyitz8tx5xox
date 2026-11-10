@@ -103,6 +103,8 @@ class ScreenReaderService : Service() {
     private var displayManager: DisplayManager? = null
     private var savedButtonX = 12
     private var savedButtonY = 260
+    private var savedPlayButtonX = 74
+    private var savedPlayButtonY = 260
     private var orientationWidth = 0
     private var orientationHeight = 0
 
@@ -123,8 +125,18 @@ class ScreenReaderService : Service() {
 
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
-            Log.d(TAG, "Captura encerrada pelo sistema")
-            handler.post { stopSelf() }
+            Log.w(TAG, "Android encerrou a sessão de captura; mantendo os controles flutuantes.")
+            handler.post {
+                liveVoiceTranslator?.stop()
+                liveVoiceTranslator = null
+                updateFloatingPlayButton()
+                virtualDisplay?.release()
+                virtualDisplay = null
+                try { reader?.close() } catch (_: Exception) {}
+                reader = null
+                projection = null
+                toast("A captura de áudio foi encerrada pelo Android. O botão continua disponível; inicie uma nova captura pelo Aurora.")
+            }
         }
     }
 
@@ -136,6 +148,8 @@ class ScreenReaderService : Service() {
         val prefs = getSharedPreferences("aurora_overlay", Context.MODE_PRIVATE)
         savedButtonX = prefs.getInt("button_x", 12)
         savedButtonY = prefs.getInt("button_y", 260)
+        savedPlayButtonX = prefs.getInt("play_button_x", 74)
+        savedPlayButtonY = prefs.getInt("play_button_y", 260)
         createChannel()
         tts = TextToSpeech(this) { status ->
             ttsReady = status == TextToSpeech.SUCCESS
@@ -166,7 +180,7 @@ class ScreenReaderService : Service() {
                 val mpm = getSystemService(MediaProjectionManager::class.java)
                 val p = mpm.getMediaProjection(resultCode, data)
                 projection = p
-                if (Build.VERSION.SDK_INT >= 34) p.registerCallback(projectionCallback, handler)
+                p.registerCallback(projectionCallback, handler)
                 setupCapture()
                 showFloatingButton()
                 if (intent.getBooleanExtra(EXTRA_LIVE_VOICE, false)) startLiveVoiceTranslation()
@@ -282,6 +296,16 @@ class ScreenReaderService : Service() {
                 savedButtonY = params.y
             }
         }
+        floatingPlayButton?.let { play ->
+            val playParams = play.layoutParams as? WindowManager.LayoutParams
+            if (playParams != null) {
+                playParams.x = savedPlayButtonX.coerceIn(0, (newW - 54).coerceAtLeast(0))
+                playParams.y = savedPlayButtonY.coerceIn(0, (newH - 54).coerceAtLeast(0))
+                try { wm.updateViewLayout(play, playParams) } catch (_: Exception) {}
+                savedPlayButtonX = playParams.x
+                savedPlayButtonY = playParams.y
+            }
+        }
         resultPanel?.let { panel ->
             val params = panel.layoutParams as? WindowManager.LayoutParams
             if (params != null) {
@@ -302,7 +326,7 @@ class ScreenReaderService : Service() {
         val p = projection
         projection = null
         if (p != null) {
-            if (Build.VERSION.SDK_INT >= 34) try { p.unregisterCallback(projectionCallback) } catch (_: Exception) {}
+            try { p.unregisterCallback(projectionCallback) } catch (_: Exception) {}
             p.stop()
         }
     }
@@ -390,14 +414,14 @@ class ScreenReaderService : Service() {
             val engine = tts
             if (!ttsReady || engine == null) {
                 // Não descarte a primeira fala se o TTS do Android ainda estiver iniciando.
-                if (pendingLiveSpeech.size >= 8) pendingLiveSpeech.removeAt(0)
+                pendingLiveSpeech.clear()
                 pendingLiveSpeech.add(spoken)
                 Log.w(TAG, "Voz ainda não pronta; tradução guardada na fila.")
                 return@post
             }
             val result = engine.speak(
                 spoken,
-                TextToSpeech.QUEUE_ADD,
+                TextToSpeech.QUEUE_FLUSH,
                 null,
                 "aurora_live_${System.currentTimeMillis()}"
             )
@@ -479,15 +503,6 @@ class ScreenReaderService : Service() {
                         params.x = (startX + dx).coerceIn(0, (resources.displayMetrics.widthPixels - 54).coerceAtLeast(0))
                         params.y = (startY + dy).coerceIn(0, (resources.displayMetrics.heightPixels - 54).coerceAtLeast(0))
                         try { wm.updateViewLayout(view, params) } catch (_: Exception) {}
-                        floatingPlayButton?.let { play ->
-                            val playParams = play.layoutParams as? WindowManager.LayoutParams
-                            if (playParams != null) {
-                                playParams.x = if (params.x + 116 <= resources.displayMetrics.widthPixels) params.x + 62
-                                    else (params.x - 62).coerceAtLeast(0)
-                                playParams.y = params.y
-                                try { wm.updateViewLayout(play, playParams) } catch (_: Exception) {}
-                            }
-                        }
                     }
                     true
                 }
@@ -532,9 +547,8 @@ class ScreenReaderService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT).apply {
                 gravity = Gravity.TOP or Gravity.START
-                x = if (anchor.x + 116 <= resources.displayMetrics.widthPixels) anchor.x + 62
-                    else (anchor.x - 62).coerceAtLeast(0)
-                y = anchor.y
+                x = savedPlayButtonX.coerceIn(0, (resources.displayMetrics.widthPixels - 54).coerceAtLeast(0))
+                y = savedPlayButtonY.coerceIn(0, (resources.displayMetrics.heightPixels - 54).coerceAtLeast(0))
             }
         val play = TextView(this).apply {
             text = "▶"
@@ -554,6 +568,49 @@ class ScreenReaderService : Service() {
                 if (liveVoiceTranslator == null) startLiveVoiceTranslation()
                 else stopLiveVoiceTranslation()
                 text = if (liveVoiceTranslator == null) "▶" else "■"
+            }
+        }
+        var playDownX = 0f
+        var playDownY = 0f
+        var playStartX = 0
+        var playStartY = 0
+        var playMoved = false
+        play.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    playDownX = event.rawX
+                    playDownY = event.rawY
+                    playStartX = params.x
+                    playStartY = params.y
+                    playMoved = false
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = (event.rawX - playDownX).toInt()
+                    val dy = (event.rawY - playDownY).toInt()
+                    if (kotlin.math.abs(dx) > 7 || kotlin.math.abs(dy) > 7) {
+                        playMoved = true
+                        params.x = (playStartX + dx).coerceIn(0, (resources.displayMetrics.widthPixels - 54).coerceAtLeast(0))
+                        params.y = (playStartY + dy).coerceIn(0, (resources.displayMetrics.heightPixels - 54).coerceAtLeast(0))
+                        try { wm.updateViewLayout(view, params) } catch (_: Exception) {}
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (playMoved) {
+                        savedPlayButtonX = params.x
+                        savedPlayButtonY = params.y
+                        getSharedPreferences("aurora_overlay", Context.MODE_PRIVATE).edit()
+                            .putInt("play_button_x", savedPlayButtonX)
+                            .putInt("play_button_y", savedPlayButtonY)
+                            .apply()
+                    } else {
+                        view.performClick()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> true
+                else -> false
             }
         }
         try {

@@ -206,8 +206,10 @@ class LiveVoiceTranslator(
                                     try {
                                         recognizeChunk(completedChunk)
                                     } catch (e: Exception) {
-                                        Log.e(TAG, "Falha ao reconhecer trecho de áudio", e)
-                                        onError("O reconhecimento de voz falhou: ${e.localizedMessage ?: "erro interno do SenseVoice"}.")
+                                        // Um trecho ruim não deve encerrar toda a sessão de vídeo.
+                                        // Registra o erro e continua capturando o próximo trecho.
+                                        Log.w(TAG, "Trecho de áudio descartado após falha de reconhecimento", e)
+                                        onStatus("Um trecho de fala não pôde ser reconhecido; continuando a captura do vídeo.")
                                     }
                                 }
                             }

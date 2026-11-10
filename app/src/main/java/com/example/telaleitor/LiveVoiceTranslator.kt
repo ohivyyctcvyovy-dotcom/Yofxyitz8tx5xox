@@ -38,7 +38,7 @@ class LiveVoiceTranslator(
     companion object {
         private const val TAG = "AuroraLiveVoice"
         private const val SAMPLE_RATE = 16000
-        private const val CHUNK_SECONDS = 3
+        private const val CHUNK_SECONDS = 4
         // Revisão fixa para não depender de alterações futuras no branch "main".
         private const val MODEL_BASE =
             "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07"
@@ -50,7 +50,7 @@ class LiveVoiceTranslator(
     // A fila limitada descarta trechos antigos se o aparelho não acompanhar o vídeo.
     private val recognitionWorker = ThreadPoolExecutor(
         1, 1, 0L, TimeUnit.MILLISECONDS,
-        ArrayBlockingQueue<Runnable>(2),
+        ArrayBlockingQueue<Runnable>(1),
         ThreadPoolExecutor.DiscardOldestPolicy()
     )
     @Volatile private var recorder: AudioRecord? = null

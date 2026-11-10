@@ -2,7 +2,9 @@ package com.example.telaleitor
 
 import android.content.Context
 import android.util.Log
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
 
 /**
  * SLIMT offline translation engine (translator-rs).
@@ -12,7 +14,11 @@ class OfflineTranslationClient(context: Context) {
     private val appContext = context.applicationContext
 
     companion object {
-        private val executor = Executors.newSingleThreadExecutor()
+        private val executor = ThreadPoolExecutor(
+            1, 1, 0L, TimeUnit.MILLISECONDS,
+            ArrayBlockingQueue<Runnable>(1),
+            ThreadPoolExecutor.DiscardOldestPolicy()
+        )
     }
 
     fun translate(

@@ -1,18 +1,18 @@
-# Leitor de Tela (Japonês / Coreano / Inglês → Português)
+# Leitor de Tela 455 — pacotes offline
 
-## Abrir e gerar o APK
-1. Instale o Android Studio (gratuito, para PC).
-2. Abra a pasta `TelaLeitor` com "Open".
-3. Espere o Gradle sincronizar (botão "Sync Now", se aparecer).
-4. Menu Build > Build Bundle(s) / APK(s) > Build APK(s).
-5. O APK fica em `app/build/outputs/apk/debug/app-debug.apk`.
+O aplicativo foi preparado para oferecer instalação individual de pacotes de tradução ML Kit e OCR Tesseract no próprio Android.
 
-## Usar
-1. Abra o app, escolha o idioma e toque em "Iniciar leitura".
-2. Conceda "Exibir sobre outros apps" e aceite a captura de tela.
-3. Volte para o app com o texto. A tela escurece: arraste sobre o texto.
-4. Ouça a tradução. Para outra área, use "Selecionar área" na notificação.
+## Funcionamento pretendido
+1. Abra a tela Gerenciar idiomas offline.
+2. Escolha um idioma e toque em Instalar pacote.
+3. O pacote de tradução e o arquivo OCR são baixados uma vez.
+4. Selecione Usar este idioma.
+5. Ative o leitor. A captura, o OCR e a tradução são executados localmente.
 
-## Observações
-- Na primeira tradução de cada idioma, é preciso internet para baixar o modelo.
-- Apps com proteção de tela (streaming, bancos) mostram tela preta. Isso é uma restrição do Android.
+A internet é necessária apenas para obter os pacotes. O leitor não envia o texto capturado para um serviço de tradução.
+
+## Compatibilidade e limitações
+A lista inclui idiomas asiáticos para os quais o ML Kit oferece modelos de tradução. O OCR usa arquivos Tesseract individuais para cada escrita. A qualidade depende da resolução, fonte, contraste e idioma; é necessário validar em aparelhos reais com exemplos de cada escrita. Não se deve considerar uma língua testada apenas porque o pacote instalou.
+
+## Gerar APK
+O workflow GitHub Actions gera o APK de depuração quando há alterações em app/**, build.gradle.kts, settings.gradle.kts ou no workflow.

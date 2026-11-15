@@ -412,8 +412,9 @@ class ScreenReaderService : Service() {
                     throw IllegalStateException("Não foi possível iniciar o modelo OCR.")
                 }
                 tess.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
+                tess.setVariable("preserve_interword_spaces", "1")
                 tess.setImage(bitmap)
-                val recognized = tess.getUTF8Text()?.trim().orEmpty()
+                val recognized = cleanRecognizedText(tess.getUTF8Text().orEmpty())
                 val confidence = tess.meanConfidence()
                 handler.post {
                     when {
@@ -431,9 +432,36 @@ class ScreenReaderService : Service() {
         }
     }
 
+    // Remove ruído típico de OCR de barras de navegação, separadores e linhas só com símbolos.
+    private fun cleanRecognizedText(raw: String): String {
+        val cleanedLines = raw
+            .replace('\u0000', ' ')
+            .lines()
+            .map { it.replace(Regex("[\\t ]+"), " ").trim() }
+            .filter { line ->
+                if (line.isBlank()) return@filter false
+                val visible = line.replace(Regex("\\s"), "")
+                val letters = visible.count { it.isLetter() }
+                val digits = visible.count { it.isDigit() }
+                val symbols = visible.count { !it.isLetterOrDigit() }
+                // Descarta linhas que parecem barras/ícones ou sequências numéricas isoladas.
+                !(letters == 0 && (digits == 0 || symbols > 0))
+                    && !(letters == 0 && digits > 0 && visible.length <= 14)
+                    && !(visible.length >= 5 && symbols.toFloat() / visible.length > 0.60f)
+            }
+        return cleanedLines.joinToString("\n")
+            .replace(Regex("([|/\\\\_~•·]{2,})"), " ")
+            .replace(Regex(" {2,}"), " ")
+            .trim()
+    }
+
     // ---------- Tradução totalmente local ----------
 
     private fun translate(text: String) {
+        if (sourceLang == TranslateLanguage.PORTUGUESE) {
+            say(text)
+            return
+        }
         val translator = Translation.getClient(
             TranslatorOptions.Builder()
                 .setSourceLanguage(sourceLang)

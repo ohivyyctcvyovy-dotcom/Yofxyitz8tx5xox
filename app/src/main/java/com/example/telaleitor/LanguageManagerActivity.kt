@@ -1,6 +1,9 @@
 package com.example.telaleitor
 
 import android.app.Activity
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -46,11 +49,13 @@ class LanguageManagerActivity : Activity() {
         LanguagePack("Marata", "🇮🇳", TranslateLanguage.MARATHI, "mar"),
         LanguagePack("Urdu", "🇵🇰", TranslateLanguage.URDU, "urd"),
         LanguagePack("Persa", "🇮🇷", TranslateLanguage.PERSIAN, "fas"),
-        LanguagePack("Árabe", "🌙", TranslateLanguage.ARABIC, "ara"),
+        LanguagePack("Árabe", "🇸🇦", TranslateLanguage.ARABIC, "ara"),
         LanguagePack("Georgiano", "🇬🇪", TranslateLanguage.GEORGIAN, "kat"),
         LanguagePack("Hebraico", "🇮🇱", TranslateLanguage.HEBREW, "heb"),
         LanguagePack("Turco", "🇹🇷", TranslateLanguage.TURKISH, "tur"),
-        LanguagePack("Tagalog / Filipino", "🇵🇭", TranslateLanguage.TAGALOG, "fil")
+        LanguagePack("Tagalog / Filipino", "🇵🇭", TranslateLanguage.TAGALOG, "fil"),
+        LanguagePack("Inglês (Estados Unidos)", "🇺🇸", TranslateLanguage.ENGLISH, "eng"),
+        LanguagePack("Inglês (Reino Unido)", "🇬🇧", TranslateLanguage.ENGLISH, "eng")
     )
 
     private lateinit var container: LinearLayout
@@ -58,67 +63,90 @@ class LanguageManagerActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val scroll = ScrollView(this).apply { setBackgroundColor(0xFF071321.toInt()) }
+        window.statusBarColor = Color.rgb(7, 17, 31)
+        window.navigationBarColor = Color.rgb(7, 17, 31)
+        val scroll = ScrollView(this).apply {
+            setBackgroundColor(Color.rgb(7, 17, 31))
+            clipToPadding = false
+        }
         container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(28))
+            setPadding(dp(20), dp(20), dp(20), dp(30))
         }
         scroll.addView(container)
         setContentView(scroll)
-        addText("IDIOMAS OFFLINE", 23f, 0xFFFFFFFF.toInt(), true)
-        addText("Escolha um idioma e instale os dois pacotes: reconhecimento de caracteres (OCR) e tradução para português. O download acontece somente quando você toca em Instalar.", 15f, 0xFFB8CBD9.toInt())
-        addText("Depois de instalados, os pacotes funcionam no próprio celular, mesmo sem internet.", 14f, 0xFF48D7B0.toInt())
+
+        val header = panel(0xFF10243A.toInt(), 22)
+        header.addView(text("IDIOMAS", 12f, 0xFF55D6C2.toInt(), true))
+        header.addView(text("Sua leitura.\nEm português.", 27f, Color.WHITE, true).apply {
+            setPadding(0, dp(8), 0, dp(8))
+        })
+        header.addView(text("Escolha o idioma do conteúdo que aparece na tela. O aplicativo reconhece e traduz sempre para português.", 14f, 0xFFC0CEDC.toInt()))
+        header.addView(text("🇧🇷  Destino fixo: Português", 14f, 0xFF70E0C6.toInt(), true).apply {
+            setPadding(0, dp(14), 0, 0)
+        })
+        container.addView(header, matchWrap().apply { bottomMargin = dp(18) })
+
+        container.addView(text("Biblioteca de idiomas", 21f, Color.WHITE, true))
+        container.addView(text("Instale somente os idiomas que você usa. Cada opção tem reconhecimento de texto (OCR) e tradução offline.", 14f, 0xFF9FB2C5.toInt()).apply {
+            setPadding(0, dp(5), 0, dp(16))
+        })
         packs.forEach { addPack(it) }
+        container.addView(text("Os pacotes são baixados uma vez pela internet. Depois, a leitura e a tradução acontecem no aparelho. Inglês dos EUA e do Reino Unido compartilham os mesmos modelos de idioma.", 12f, 0xFF8297AC.toInt()).apply {
+            setPadding(dp(4), dp(8), dp(4), dp(18))
+        })
     }
 
     private fun addPack(pack: LanguagePack) {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            setBackgroundColor(0xFF10263A.toInt())
-        }
-        card.addView(TextView(this).apply {
-            text = "${pack.flag}  ${pack.label}"
-            textSize = 17f
-            setTextColor(0xFFFFFFFF.toInt())
+        val card = panel(0xFF11283E.toInt(), 18)
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        top.addView(text(pack.flag, 29f, Color.WHITE).apply { setPadding(0, 0, dp(12), 0) })
+        val nameColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(0, -2, 1f) }
+        nameColumn.addView(text(pack.label, 16f, Color.WHITE, true))
+        nameColumn.addView(text(if (pack.mlCode == TranslateLanguage.ENGLISH) "Inglês → Português" else "${pack.label} → Português", 12f, 0xFF91A9BD.toInt()).apply {
+            setPadding(0, dp(3), 0, 0)
         })
-        card.addView(TextView(this).apply {
-            text = "OCR: ${pack.ocrCode}  •  Tradução: ${pack.label} → Português"
-            textSize = 12f
-            setTextColor(0xFFB8CBD9.toInt())
-            setPadding(0, dp(5), 0, dp(8))
-        })
-        val status = TextView(this).apply {
-            textSize = 13f
-            setTextColor(0xFF48D7B0.toInt())
-        }
+        top.addView(nameColumn)
+        card.addView(top)
+
+        val status = text("Verificando pacotes…", 12f, 0xFF9FB2C5.toInt()).apply { setPadding(0, dp(12), 0, dp(8)) }
         card.addView(status)
         val progress = ProgressBar(this).apply { visibility = View.GONE }
         card.addView(progress)
-        val actions = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val install = Button(this).apply {
+            text = "Instalar"
+            isAllCaps = false
+            setTextColor(Color.rgb(5, 25, 37))
+            background = rounded(0xFF55D6C2.toInt(), 12)
         }
-        val install = Button(this).apply { text = "Instalar pacote" }
-        val use = Button(this).apply { text = "Usar este idioma" }
-        actions.addView(install, LinearLayout.LayoutParams(0, dp(48), 1f))
-        actions.addView(use, LinearLayout.LayoutParams(0, dp(48), 1f))
+        val use = Button(this).apply {
+            text = "Selecionar"
+            isAllCaps = false
+            setTextColor(Color.WHITE)
+            background = rounded(0xFF29445D.toInt(), 12)
+        }
+        actions.addView(install, LinearLayout.LayoutParams(0, dp(46), 1f).apply { rightMargin = dp(7) })
+        actions.addView(use, LinearLayout.LayoutParams(0, dp(46), 1f).apply { leftMargin = dp(7) })
         card.addView(actions)
-        container.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
+        container.addView(card, matchWrap().apply { bottomMargin = dp(11) })
 
         fun refresh() {
             val installed = isInstalled(pack)
-            status.text = if (installed) "Pacotes instalados neste aparelho" else "Ainda não instalado"
+            status.text = if (installed) "✓ Pacotes instalados neste aparelho" else "Pacote ainda não instalado"
+            status.setTextColor(if (installed) 0xFF70E0C6.toInt() else 0xFF9FB2C5.toInt())
             install.text = if (installed) "Instalado" else "Instalar pacote"
             install.isEnabled = !installed
+            install.alpha = if (installed) 0.6f else 1f
             use.isEnabled = installed
+            use.alpha = if (installed) 1f else 0.48f
         }
         refresh()
         install.setOnClickListener {
             install.isEnabled = false
             use.isEnabled = false
             progress.visibility = View.VISIBLE
-            status.text = "Baixando modelo de tradução..."
+            status.text = "Baixando modelos… mantenha a internet ligada."
             installPack(pack) { success, message ->
                 runOnUiThread {
                     progress.visibility = View.GONE
@@ -134,9 +162,9 @@ class LanguageManagerActivity : Activity() {
             prefs.edit()
                 .putString(KEY_LANGUAGE, pack.mlCode)
                 .putString(KEY_OCR, pack.ocrCode)
-                .putString(KEY_LABEL, pack.label)
+                .putString(KEY_LABEL, "${pack.flag}  ${pack.label}")
                 .apply()
-            Toast.makeText(this, "${pack.label} selecionado para leitura e tradução.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "${pack.flag} ${pack.label} selecionado. A tradução será sempre para português.", Toast.LENGTH_SHORT).show()
             finish()
         }
     }
@@ -168,12 +196,8 @@ class LanguageManagerActivity : Activity() {
                             if (connection.responseCode != HttpURLConnection.HTTP_OK) {
                                 throw IllegalStateException("O servidor não encontrou o pacote OCR (${connection.responseCode}).")
                             }
-                            connection.inputStream.use { input ->
-                                temp.outputStream().use { output -> input.copyTo(output) }
-                            }
-                        } finally {
-                            connection.disconnect()
-                        }
+                            connection.inputStream.use { input -> temp.outputStream().use { output -> input.copyTo(output) } }
+                        } finally { connection.disconnect() }
                         if (temp.length() < 100_000L) {
                             temp.delete()
                             throw IllegalStateException("O arquivo OCR recebido parece incompleto.")
@@ -181,7 +205,7 @@ class LanguageManagerActivity : Activity() {
                         if (target.exists()) target.delete()
                         if (!temp.renameTo(target)) throw IllegalStateException("Não consegui salvar o pacote OCR.")
                         prefs.edit().putBoolean(installedKey(pack), true).apply()
-                        done(true, "Pacotes de ${pack.label} instalados. Agora toque em Usar este idioma.")
+                        done(true, "Pacotes de ${pack.label} instalados.")
                     } catch (e: Exception) {
                         done(false, "Falha no OCR de ${pack.label}: ${e.message ?: "erro de download"}.")
                     }
@@ -199,15 +223,25 @@ class LanguageManagerActivity : Activity() {
 
     private fun installedKey(pack: LanguagePack) = "installed_${pack.mlCode}_${pack.ocrCode}"
 
-    private fun addText(value: String, size: Float, color: Int, bold: Boolean = false) {
-        container.addView(TextView(this).apply {
-            text = value
-            textSize = size
-            setTextColor(color)
-            if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
-            setPadding(0, 0, 0, dp(12))
-        })
+    private fun panel(color: Int, radius: Int) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(16), dp(16), dp(16), dp(16))
+        background = rounded(color, radius)
     }
 
+    private fun rounded(color: Int, radius: Int) = GradientDrawable().apply {
+        setColor(color)
+        cornerRadius = dp(radius).toFloat()
+        setStroke(dp(1), 0xFF203B52.toInt())
+    }
+
+    private fun text(value: String, size: Float, color: Int, bold: Boolean = false) = TextView(this).apply {
+        text = value
+        textSize = size
+        setTextColor(color)
+        if (bold) setTypeface(typeface, Typeface.BOLD)
+    }
+
+    private fun matchWrap() = LinearLayout.LayoutParams(-1, -2)
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }

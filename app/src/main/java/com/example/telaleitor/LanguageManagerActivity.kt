@@ -50,7 +50,7 @@ class LanguageManagerActivity : Activity() {
         LanguagePack("Georgiano", "🇬🇪", TranslateLanguage.GEORGIAN, "kat"),
         LanguagePack("Hebraico", "🇮🇱", TranslateLanguage.HEBREW, "heb"),
         LanguagePack("Turco", "🇹🇷", TranslateLanguage.TURKISH, "tur"),
-        LanguagePack("Tagalog", "🇵🇭", TranslateLanguage.TAGALOG, "tgl")
+        LanguagePack("Tagalog / Filipino", "🇵🇭", TranslateLanguage.TAGALOG, "fil")
     )
 
     private lateinit var container: LinearLayout

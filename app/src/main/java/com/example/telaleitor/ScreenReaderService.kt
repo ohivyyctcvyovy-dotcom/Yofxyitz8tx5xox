@@ -408,7 +408,7 @@ class ScreenReaderService : Service() {
             try {
                 tess = TessBaseAPI()
                 val dataRoot = File(filesDir, "tesseract").absolutePath
-                if (!tess.init(dataRoot, ocrLang)) {
+                if (!tess.init(dataRoot, ocrLang, TessBaseAPI.OEM_LSTM_ONLY)) {
                     throw IllegalStateException("Não foi possível iniciar o modelo OCR.")
                 }
                 tess.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
@@ -418,7 +418,7 @@ class ScreenReaderService : Service() {
                 handler.post {
                     when {
                         recognized.isEmpty() -> say("Não consegui reconhecer texto nessa área. Tente selecionar uma região maior e mais nítida.")
-                        confidence < 25 -> say("O reconhecimento ficou pouco confiável. Não vou traduzir para evitar uma leitura inventada. Tente ampliar ou selecionar novamente o texto.")
+                        confidence < 40 -> say("O reconhecimento ficou pouco confiável. Não vou traduzir para evitar uma leitura inventada. Tente ampliar ou selecionar novamente o texto.")
                         else -> translate(recognized)
                     }
                 }

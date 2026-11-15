@@ -33,16 +33,13 @@ import android.graphics.Typeface
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
 import com.google.mlkit.nl.translate.TranslatorOptions
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.TextRecognition
-import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
-import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
-import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.Locale
+import java.io.File
+import java.util.concurrent.Executors
+import com.googlecode.tesseract.android.TessBaseAPI
 
 class ScreenReaderService : Service() {
 
@@ -53,6 +50,7 @@ class ScreenReaderService : Service() {
         const val EXTRA_RESULT_CODE = "resultCode"
         const val EXTRA_DATA = "data"
         const val EXTRA_LANG = "lang"
+        const val EXTRA_OCR_LANG = "ocrLang"
         private const val CHANNEL_ID = "leitor_tela"
         private const val NOTIF_ID = 1
         private const val TAG = "ScreenReader"
@@ -66,6 +64,8 @@ class ScreenReaderService : Service() {
     private var overlay: SelectionView? = null
     private var floatingButton: TextView? = null
     private var sourceLang: String = TranslateLanguage.JAPANESE
+    private var ocrLang: String = "jpn"
+    private val ocrExecutor = Executors.newSingleThreadExecutor()
     private var tts: TextToSpeech? = null
     private var ttsReady = false
     private var screenW = 0
@@ -94,6 +94,7 @@ class ScreenReaderService : Service() {
                 // Precisa chamar startForeground logo no início
                 startAsForeground()
                 sourceLang = intent.getStringExtra(EXTRA_LANG) ?: TranslateLanguage.JAPANESE
+                ocrLang = intent.getStringExtra(EXTRA_OCR_LANG) ?: "jpn"
 
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
                 val data = readDataExtra(intent)
@@ -130,6 +131,7 @@ class ScreenReaderService : Service() {
         releaseCapture()
         tts?.stop()
         tts?.shutdown()
+        ocrExecutor.shutdownNow()
         super.onDestroy()
     }
 
@@ -392,34 +394,44 @@ class ScreenReaderService : Service() {
         return Bitmap.createBitmap(bmp, left, top, right - left, bottom - top)
     }
 
-    // ---------- OCR ----------
+    // ---------- OCR totalmente local (Tesseract) ----------
 
     private fun readText(bitmap: Bitmap) {
-        val recognizer = when (sourceLang) {
-            TranslateLanguage.JAPANESE ->
-                TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
-            TranslateLanguage.KOREAN ->
-                TextRecognition.getClient(KoreanTextRecognizerOptions.Builder().build())
-            else ->
-                TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val model = File(filesDir, "tesseract/tessdata/$ocrLang.traineddata")
+        if (!model.exists()) {
+            say("O pacote de reconhecimento deste idioma não está instalado. Abra Gerenciar idiomas.")
+            return
         }
 
-        recognizer.process(InputImage.fromBitmap(bitmap, 0))
-            .addOnSuccessListener { result ->
-                recognizer.close()
-                val text = result.text.trim()
-                Log.d(TAG, "OCR: $text")
-                if (text.isEmpty()) say("Não encontrei texto na área selecionada.")
-                else translate(text)
+        ocrExecutor.execute {
+            var tess: TessBaseAPI? = null
+            try {
+                tess = TessBaseAPI()
+                val dataRoot = File(filesDir, "tesseract").absolutePath
+                if (!tess.init(dataRoot, ocrLang)) {
+                    throw IllegalStateException("Não foi possível iniciar o modelo OCR.")
+                }
+                tess.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
+                tess.setImage(bitmap)
+                val recognized = tess.getUTF8Text()?.trim().orEmpty()
+                val confidence = tess.getMeanConfidence()
+                handler.post {
+                    when {
+                        recognized.isEmpty() -> say("Não consegui reconhecer texto nessa área. Tente selecionar uma região maior e mais nítida.")
+                        confidence < 25 -> say("O reconhecimento ficou pouco confiável. Não vou traduzir para evitar uma leitura inventada. Tente ampliar ou selecionar novamente o texto.")
+                        else -> translate(recognized)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Falha no OCR offline", e)
+                handler.post { say("Não consegui reconhecer esse texto. Verifique se o pacote OCR está instalado corretamente.") }
+            } finally {
+                try { tess?.recycle() } catch (_: Exception) {}
             }
-            .addOnFailureListener { e ->
-                recognizer.close()
-                Log.e(TAG, "Erro no OCR", e)
-                say("Erro ao reconhecer o texto.")
-            }
+        }
     }
 
-    // ---------- Tradução ----------
+    // ---------- Tradução totalmente local ----------
 
     private fun translate(text: String) {
         val translator = Translation.getClient(
@@ -429,26 +441,18 @@ class ScreenReaderService : Service() {
                 .build()
         )
 
-        // Baixa o modelo do idioma se ainda não estiver no aparelho
-        translator.downloadModelIfNeeded(DownloadConditions.Builder().build())
-            .addOnSuccessListener {
-                translator.translate(text)
-                    .addOnSuccessListener { translated ->
-                        translator.close()
-                        Log.d(TAG, "Tradução: $translated")
-                        toast("$text\n\n→ $translated")
-                        say(translated)
-                    }
-                    .addOnFailureListener { e ->
-                        translator.close()
-                        Log.e(TAG, "Erro na tradução", e)
-                        say("Erro na tradução.")
-                    }
+        // Não baixa modelos aqui. O usuário precisa instalá-los manualmente na tela de idiomas.
+        translator.translate(text)
+            .addOnSuccessListener { translated ->
+                translator.close()
+                Log.d(TAG, "Tradução offline concluída")
+                toast(translated)
+                say(translated)
             }
             .addOnFailureListener { e ->
                 translator.close()
-                Log.e(TAG, "Falha ao baixar o modelo de tradução", e)
-                say("Não consegui baixar o modelo de tradução. Verifique a internet.")
+                Log.e(TAG, "Modelo offline indisponível ou erro de tradução", e)
+                say("Não consegui traduzir. Abra Gerenciar idiomas e confirme que o pacote de tradução está instalado.")
             }
     }
 

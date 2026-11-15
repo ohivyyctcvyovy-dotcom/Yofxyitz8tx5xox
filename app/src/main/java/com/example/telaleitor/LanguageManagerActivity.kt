@@ -32,6 +32,7 @@ class LanguageManagerActivity : Activity() {
     private data class LanguagePack(val label: String, val flag: String, val mlCode: String, val ocrCode: String)
 
     private val packs = listOf(
+        LanguagePack("Português (Brasil)", "🇧🇷", TranslateLanguage.PORTUGUESE, "por"),
         LanguagePack("Japonês", "🇯🇵", TranslateLanguage.JAPANESE, "jpn"),
         LanguagePack("Coreano", "🇰🇷", TranslateLanguage.KOREAN, "kor"),
         LanguagePack("Chinês simplificado", "🇨🇳", TranslateLanguage.CHINESE, "chi_sim"),
@@ -170,6 +171,46 @@ class LanguageManagerActivity : Activity() {
     }
 
     private fun installPack(pack: LanguagePack, done: (Boolean, String) -> Unit) {
+        fun downloadOcrModel() {
+            Thread {
+                try {
+                    val folder = File(filesDir, "tesseract/tessdata")
+                    if (!folder.exists() && !folder.mkdirs()) throw IllegalStateException("Não foi possível criar a pasta dos modelos.")
+                    val target = File(folder, "${pack.ocrCode}.traineddata")
+                    val temp = File(folder, "${pack.ocrCode}.traineddata.part")
+                    val url = URL("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/${pack.ocrCode}.traineddata")
+                    val connection = (url.openConnection() as HttpURLConnection).apply {
+                        connectTimeout = 20000
+                        readTimeout = 90000
+                        requestMethod = "GET"
+                    }
+                    try {
+                        connection.connect()
+                        if (connection.responseCode != HttpURLConnection.HTTP_OK) {
+                            throw IllegalStateException("O servidor não encontrou o pacote OCR (${connection.responseCode}).")
+                        }
+                        connection.inputStream.use { input -> temp.outputStream().use { output -> input.copyTo(output) } }
+                    } finally { connection.disconnect() }
+                    if (temp.length() < 100_000L) {
+                        temp.delete()
+                        throw IllegalStateException("O arquivo OCR recebido parece incompleto.")
+                    }
+                    if (target.exists()) target.delete()
+                    if (!temp.renameTo(target)) throw IllegalStateException("Não consegui salvar o pacote OCR.")
+                    prefs.edit().putBoolean(installedKey(pack), true).apply()
+                    done(true, "Pacote de reconhecimento de ${pack.label} instalado.")
+                } catch (e: Exception) {
+                    done(false, "Falha no OCR de ${pack.label}: ${e.message ?: "erro de download"}.")
+                }
+            }.start()
+        }
+
+        // Português é o idioma final: precisa de OCR e voz, mas não de tradução para si mesmo.
+        if (pack.mlCode == TranslateLanguage.PORTUGUESE) {
+            downloadOcrModel()
+            return
+        }
+
         val translator = Translation.getClient(
             TranslatorOptions.Builder()
                 .setSourceLanguage(pack.mlCode)
@@ -179,37 +220,7 @@ class LanguageManagerActivity : Activity() {
         translator.downloadModelIfNeeded(DownloadConditions.Builder().build())
             .addOnSuccessListener {
                 translator.close()
-                Thread {
-                    try {
-                        val folder = File(filesDir, "tesseract/tessdata")
-                        if (!folder.exists() && !folder.mkdirs()) throw IllegalStateException("Não foi possível criar a pasta dos modelos.")
-                        val target = File(folder, "${pack.ocrCode}.traineddata")
-                        val temp = File(folder, "${pack.ocrCode}.traineddata.part")
-                        val url = URL("https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/main/${pack.ocrCode}.traineddata")
-                        val connection = (url.openConnection() as HttpURLConnection).apply {
-                            connectTimeout = 20000
-                            readTimeout = 90000
-                            requestMethod = "GET"
-                        }
-                        try {
-                            connection.connect()
-                            if (connection.responseCode != HttpURLConnection.HTTP_OK) {
-                                throw IllegalStateException("O servidor não encontrou o pacote OCR (${connection.responseCode}).")
-                            }
-                            connection.inputStream.use { input -> temp.outputStream().use { output -> input.copyTo(output) } }
-                        } finally { connection.disconnect() }
-                        if (temp.length() < 100_000L) {
-                            temp.delete()
-                            throw IllegalStateException("O arquivo OCR recebido parece incompleto.")
-                        }
-                        if (target.exists()) target.delete()
-                        if (!temp.renameTo(target)) throw IllegalStateException("Não consegui salvar o pacote OCR.")
-                        prefs.edit().putBoolean(installedKey(pack), true).apply()
-                        done(true, "Pacotes de ${pack.label} instalados.")
-                    } catch (e: Exception) {
-                        done(false, "Falha no OCR de ${pack.label}: ${e.message ?: "erro de download"}.")
-                    }
-                }.start()
+                downloadOcrModel()
             }
             .addOnFailureListener { error ->
                 translator.close()

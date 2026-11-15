@@ -42,8 +42,8 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         val prefs = getSharedPreferences(LanguageManagerActivity.PREFS, MODE_PRIVATE)
-        val label = prefs.getString(LanguageManagerActivity.KEY_LABEL, "Japonês") ?: "Japonês"
-        findViewById<TextView>(R.id.tvSelectedLanguage)?.text = "Idioma selecionado: $label"
+        val label = prefs.getString(LanguageManagerActivity.KEY_LABEL, "🇯🇵  Japonês") ?: "🇯🇵  Japonês"
+        findViewById<TextView>(R.id.tvSelectedLanguage)?.text = "$label   →   🇧🇷 Português"
     }
 
     private fun startReading() {

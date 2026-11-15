@@ -414,7 +414,7 @@ class ScreenReaderService : Service() {
                 tess.setPageSegMode(TessBaseAPI.PageSegMode.PSM_AUTO)
                 tess.setImage(bitmap)
                 val recognized = tess.getUTF8Text()?.trim().orEmpty()
-                val confidence = tess.getMeanConfidence()
+                val confidence = tess.meanConfidence()
                 handler.post {
                     when {
                         recognized.isEmpty() -> say("Não consegui reconhecer texto nessa área. Tente selecionar uma região maior e mais nítida.")
